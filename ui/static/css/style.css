@@ -1,0 +1,864 @@
+@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@300;400;700&display=swap');
+
+/* Comic Book Base Styling */
+body {
+    background: linear-gradient(45deg, #FFD700 0%, #FF6B6B 25%, #4ECDC4 50%, #45B7D1 75%, #96CEB4 100%);
+    background-size: 400% 400%;
+    animation: gradientShift 8s ease infinite;
+    font-family: 'Comic Neue', cursive;
+    margin: 0;
+    min-height: 100vh;
+    position: relative;
+}
+
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: 
+        radial-gradient(circle at 20px 20px, #000 2px, transparent 2px),
+        radial-gradient(circle at 80px 80px, #000 1px, transparent 1px);
+    background-size: 100px 100px, 40px 40px;
+    opacity: 0.1;
+    pointer-events: none;
+    z-index: -1;
+}
+
+@keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Comic Book Headers */
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Bangers', cursive;
+    text-shadow: 3px 3px 0px #000, -1px -1px 0px #000, 1px -1px 0px #000, -1px 1px 0px #000;
+    letter-spacing: 2px;
+}
+
+/* Navigation Bar - Comic Style */
+.navbar {
+    background: linear-gradient(45deg, #FF6B6B, #4ECDC4) !important;
+    border-bottom: 5px solid #000;
+    box-shadow: 0 5px 0 #000;
+    position: relative;
+}
+
+.navbar::after {
+    content: 'POW! BAM! ZAP!';
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: 'Bangers', cursive;
+    font-size: 12px;
+    color: #FFD700;
+    text-shadow: 2px 2px 0 #000;
+    opacity: 0.7;
+}
+
+.navbar-brand {
+    font-family: 'Bangers', cursive !important;
+    font-size: 2rem !important;
+    text-shadow: 3px 3px 0px #000 !important;
+    color: #FFD700 !important;
+}
+
+/* Speech Bubble Cards */
+.card {
+    background: #FFFFFF;
+    border: 4px solid #000 !important;
+    border-radius: 20px !important;
+    position: relative;
+    box-shadow: 8px 8px 0px #000;
+    transform: rotate(-1deg);
+    transition: all 0.3s ease;
+}
+
+.card:hover {
+    transform: rotate(0deg) scale(1.02);
+    box-shadow: 12px 12px 0px #000;
+}
+
+.card::before {
+    content: '';
+    position: absolute;
+    bottom: -15px;
+    left: 30px;
+    width: 0;
+    height: 0;
+    border-left: 15px solid transparent;
+    border-right: 15px solid transparent;
+    border-top: 15px solid #000;
+    z-index: 1;
+}
+
+.card::after {
+    content: '';
+    position: absolute;
+    bottom: -11px;
+    left: 32px;
+    width: 0;
+    height: 0;
+    border-left: 13px solid transparent;
+    border-right: 13px solid transparent;
+    border-top: 13px solid #FFFFFF;
+    z-index: 2;
+}
+
+/* Comic Book Headers */
+.card-header {
+    background: linear-gradient(45deg, #FF6B6B, #FFD700) !important;
+    border-bottom: 3px solid #000 !important;
+    border-radius: 15px 15px 0 0 !important;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.card-header::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 2px,
+        rgba(255,255,255,0.1) 2px,
+        rgba(255,255,255,0.1) 4px
+    );
+    animation: shimmer 3s linear infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+    100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+}
+
+.card-title {
+    font-family: 'Bangers', cursive !important;
+    font-size: 1.5rem !important;
+    margin: 0 !important;
+    text-shadow: 2px 2px 0px #000;
+    color: #FFFFFF !important;
+    z-index: 10;
+    position: relative;
+}
+
+/* Comic Book Buttons */
+.btn {
+    font-family: 'Bangers', cursive !important;
+    font-size: 1.2rem !important;
+    padding: 12px 25px !important;
+    border: 3px solid #000 !important;
+    border-radius: 15px !important;
+    text-shadow: 2px 2px 0px #000;
+    box-shadow: 5px 5px 0px #000;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.btn:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 7px 7px 0px #000;
+}
+
+.btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 2px 2px 0px #000;
+}
+
+.btn-warning {
+    background: linear-gradient(45deg, #FFD700, #FFA500) !important;
+    color: #000 !important;
+}
+
+.btn-info {
+    background: linear-gradient(45deg, #4ECDC4, #45B7D1) !important;
+    color: #000 !important;
+}
+
+.btn-success {
+    background: linear-gradient(45deg, #96CEB4, #FFEAA7) !important;
+    color: #000 !important;
+}
+
+/* Comic Book Form Controls */
+.form-control {
+    border: 3px solid #000 !important;
+    border-radius: 10px !important;
+    font-family: 'Comic Neue', cursive;
+    font-size: 1.1rem;
+    padding: 10px 15px;
+    box-shadow: inset 3px 3px 0px rgba(0,0,0,0.1);
+}
+
+.form-control:focus {
+    border-color: #FF6B6B !important;
+    box-shadow: inset 3px 3px 0px rgba(0,0,0,0.1), 0 0 0 3px rgba(255, 107, 107, 0.3) !important;
+}
+
+/* Comic Book Tabs */
+.nav-tabs {
+    border-bottom: 4px solid #000 !important;
+}
+
+.nav-tabs .nav-link {
+    font-family: 'Bangers', cursive !important;
+    font-size: 1.3rem !important;
+    color: #000 !important;
+    border: 3px solid #000 !important;
+    border-bottom: none !important;
+    border-radius: 15px 15px 0 0 !important;
+    margin-right: 5px;
+    background: linear-gradient(45deg, #FFFFFF, #F8F9FA);
+    text-shadow: 1px 1px 0px rgba(0,0,0,0.3);
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.nav-tabs .nav-link:hover {
+    background: linear-gradient(45deg, #FFD700, #FFA500) !important;
+    transform: translateY(-3px);
+}
+
+.nav-tabs .nav-link.active {
+    background: linear-gradient(45deg, #FF6B6B, #4ECDC4) !important;
+    color: #FFFFFF !important;
+    text-shadow: 2px 2px 0px #000;
+    transform: translateY(-5px);
+    box-shadow: 0 5px 0 #000;
+}
+
+/* Result Display - Comic Bubbles */
+.alert {
+    border: 4px solid #000 !important;
+    border-radius: 20px !important;
+    font-family: 'Comic Neue', cursive;
+    font-size: 1.1rem;
+    position: relative;
+    background: #FFFFFF;
+    box-shadow: 5px 5px 0px #000;
+    margin: 20px 0;
+}
+
+.alert-light {
+    background: linear-gradient(45deg, #FFFFFF, #F8F9FA) !important;
+}
+
+.alert-info {
+    background: linear-gradient(45deg, #4ECDC4, #45B7D1) !important;
+    color: #000 !important;
+}
+
+.alert-danger {
+    background: linear-gradient(45deg, #FF6B6B, #E17055) !important;
+    color: #FFFFFF !important;
+    text-shadow: 1px 1px 0px #000;
+}
+
+/* Comic Book Badges */
+.badge {
+    font-family: 'Bangers', cursive !important;
+    font-size: 1rem !important;
+    padding: 8px 15px !important;
+    border: 2px solid #000 !important;
+    border-radius: 20px !important;
+    text-shadow: 1px 1px 0px #000;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.bg-warning {
+    background: linear-gradient(45deg, #FFD700, #FFA500) !important;
+    color: #000 !important;
+}
+
+.bg-success {
+    background: linear-gradient(45deg, #96CEB4, #FFEAA7) !important;
+    color: #000 !important;
+}
+
+.bg-danger {
+    background: linear-gradient(45deg, #FF6B6B, #E17055) !important;
+}
+
+/* Probability Bars - Comic Style */
+.probability-bar {
+    height: 25px !important;
+    background: linear-gradient(45deg, #E9ECEF, #DEE2E6) !important;
+    border: 3px solid #000 !important;
+    border-radius: 15px !important;
+    overflow: hidden;
+    margin: 8px 0 !important;
+    position: relative;
+}
+
+.probability-fill {
+    height: 100% !important;
+    background: linear-gradient(45deg, #FF6B6B, #4ECDC4) !important;
+    transition: width 0.5s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: #000 !important;
+    font-size: 0.9rem !important;
+    font-weight: bold !important;
+    font-family: 'Bangers', cursive !important;
+    text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
+    position: relative;
+}
+
+.probability-fill.bg-warning {
+    background: linear-gradient(45deg, #FFD700, #FFA500) !important;
+}
+
+.probability-fill.bg-success {
+    background: linear-gradient(45deg, #96CEB4, #FFEAA7) !important;
+}
+
+/* Loading Animation - Comic Style */
+.loading {
+    opacity: 0.8 !important;
+    pointer-events: none !important;
+}
+
+.fa-spinner {
+    animation: comic-spin 1s linear infinite;
+}
+
+@keyframes comic-spin {
+    0% { transform: rotate(0deg) scale(1); }
+    25% { transform: rotate(90deg) scale(1.1); }
+    50% { transform: rotate(180deg) scale(1); }
+    75% { transform: rotate(270deg) scale(1.1); }
+    100% { transform: rotate(360deg) scale(1); }
+}
+
+/* System Status - Comic Panel */
+.card:last-child {
+    background: linear-gradient(45deg, #2D3436, #636E72);
+    color: #FFFFFF;
+    border: 4px solid #000;
+    transform: rotate(0deg);
+}
+
+.card:last-child .card-header {
+    background: linear-gradient(45deg, #636E72, #2D3436) !important;
+}
+
+/* Status indicators */
+.status-indicator {
+    width: 15px !important;
+    height: 15px !important;
+    border: 2px solid #000 !important;
+    margin-right: 8px !important;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+}
+
+/* Footer - Comic Style */
+footer {
+    background: linear-gradient(45deg, #2D3436, #636E72) !important;
+    border-top: 5px solid #000;
+    color: #FFFFFF;
+    font-family: 'Comic Neue', cursive;
+    margin-top: 50px !important;
+}
+
+/* Fade-in Animation Enhancement */
+.fade-in {
+    animation: comicFadeIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+@keyframes comicFadeIn {
+    from { 
+        opacity: 0; 
+        transform: translateY(20px) scale(0.9) rotate(-2deg); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateY(0) scale(1) rotate(0deg); 
+    }
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    .card {
+        transform: rotate(0deg);
+        margin: 10px 5px;
+    }
+    
+    .navbar::after {
+        display: none;
+    }
+    
+    .btn {
+        font-size: 1rem !important;
+        padding: 10px 20px !important;
+    }
+}
+
+/* Fun Loading Messages */
+.btn:disabled::after {
+    content: ' KAPOW!';
+    animation: flash 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes flash {
+    from { opacity: 1; }
+    to { opacity: 0.5; }
+}
+
+/* Comic Book Entrance Animation */
+.comic-entrance {
+    animation: comicEntrance 1s ease-out;
+}
+
+@keyframes comicEntrance {
+    0% { 
+        opacity: 0; 
+        transform: scale(0.8) rotate(-5deg); 
+        filter: blur(3px);
+    }
+    50% { 
+        opacity: 0.7; 
+        transform: scale(1.1) rotate(2deg); 
+        filter: blur(1px);
+    }
+    100% { 
+        opacity: 1; 
+        transform: scale(1) rotate(0deg); 
+        filter: blur(0);
+    }
+}
+
+/* Comic Banner Styles */
+.comic-banner {
+    background: linear-gradient(45deg, #FF6B6B, #4ECDC4, #FFD700);
+    border: 4px solid #000;
+    border-radius: 25px;
+    padding: 15px 30px;
+    margin: 20px auto;
+    box-shadow: 8px 8px 0px #000;
+    transform: rotate(-1deg);
+    display: inline-block;
+}
+
+.comic-text {
+    font-family: 'Bangers', cursive;
+    font-size: 1.5rem;
+    text-shadow: 3px 3px 0px #000;
+    color: #FFFFFF;
+    letter-spacing: 2px;
+}
+
+.comic-subtitle {
+    font-family: 'Comic Neue', cursive;
+    font-size: 1.2rem;
+    color: #2D3436;
+    margin-top: 15px;
+    font-weight: 600;
+}
+
+.comic-subtitle-small {
+    font-family: 'Comic Neue', cursive;
+    font-size: 0.9rem;
+    color: rgba(255,255,255,0.9);
+    margin-top: 5px;
+    text-shadow: 1px 1px 0px #000;
+}
+
+/* Comic Instructions */
+.comic-instruction {
+    background: linear-gradient(45deg, #FFEAA7, #FFD700);
+    border: 3px solid #000;
+    border-radius: 15px;
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    font-family: 'Comic Neue', cursive;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: 3px 3px 0px #000;
+}
+
+/* Comic VS Element */
+.comic-vs {
+    text-align: center;
+    font-family: 'Bangers', cursive;
+    font-size: 2rem;
+    color: #FF6B6B;
+    text-shadow: 2px 2px 0px #000;
+    margin: 15px 0;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+/* Comic Labels */
+.comic-label {
+    font-family: 'Bangers', cursive !important;
+    font-size: 1.2rem !important;
+    color: #2D3436 !important;
+    text-shadow: 1px 1px 0px rgba(0,0,0,0.1);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+/* Comic Input Focus Effect */
+.comic-focus {
+    animation: comicGlow 0.3s ease;
+}
+
+@keyframes comicGlow {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+/* Comic Result Styling */
+.comic-result {
+    background: linear-gradient(45deg, #FFFFFF, #F8F9FA) !important;
+    border: 4px solid #000 !important;
+    border-radius: 20px !important;
+    padding: 20px !important;
+    box-shadow: 6px 6px 0px #000;
+    position: relative;
+}
+
+.comic-result-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.comic-verdict {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(45deg, #FFD700, #FFA500);
+    border: 3px solid #000;
+    border-radius: 25px;
+    padding: 10px 20px;
+    margin-bottom: 10px;
+}
+
+.comic-verdict.success {
+    background: linear-gradient(45deg, #96CEB4, #FFEAA7);
+}
+
+.comic-verdict.danger {
+    background: linear-gradient(45deg, #FF6B6B, #E17055);
+}
+
+.comic-emoji {
+    font-size: 1.5rem;
+}
+
+.comic-sound {
+    font-size: 1.2rem;
+    animation: bounce 0.5s ease infinite alternate;
+}
+
+@keyframes bounce {
+    from { transform: translateY(0px); }
+    to { transform: translateY(-3px); }
+}
+
+.comic-verdict-text {
+    font-family: 'Bangers', cursive;
+    font-size: 1.3rem;
+    text-shadow: 2px 2px 0px #000;
+    color: #000;
+    letter-spacing: 1px;
+}
+
+.comic-confidence {
+    font-family: 'Comic Neue', cursive;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #2D3436;
+}
+
+/* Comic Probability Section */
+.comic-probability-section {
+    margin: 20px 0;
+}
+
+.comic-probability-item {
+    margin: 15px 0;
+}
+
+.comic-probability-label {
+    font-family: 'Comic Neue', cursive;
+    font-weight: 700;
+    margin-bottom: 5px;
+    color: #2D3436;
+}
+
+/* Comic Status Panel */
+.comic-status-panel {
+    background: linear-gradient(45deg, #2D3436, #636E72) !important;
+    color: #FFFFFF;
+    transform: rotate(0deg);
+}
+
+.comic-status-grid {
+    gap: 20px;
+}
+
+.comic-status-item {
+    text-align: center;
+    padding: 15px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 15px;
+    border: 2px solid rgba(255,255,255,0.2);
+}
+
+.comic-status-icon {
+    font-size: 2rem;
+    margin-bottom: 8px;
+}
+
+.comic-status-label {
+    font-family: 'Bangers', cursive;
+    font-size: 0.9rem;
+    letter-spacing: 1px;
+    margin-bottom: 5px;
+}
+
+.comic-badge {
+    font-family: 'Bangers', cursive !important;
+    font-size: 0.8rem !important;
+    letter-spacing: 1px;
+}
+
+/* Comic Hint System */
+.comic-hint {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: linear-gradient(45deg, #FFD700, #FFA500);
+    border: 3px solid #000;
+    border-radius: 20px;
+    padding: 15px 25px;
+    font-family: 'Bangers', cursive;
+    font-size: 1.2rem;
+    text-shadow: 2px 2px 0px #000;
+    box-shadow: 5px 5px 0px #000;
+    z-index: 9999;
+    animation: comicPop 2s ease;
+}
+
+@keyframes comicPop {
+    0% { 
+        opacity: 0; 
+        transform: translate(-50%, -50%) scale(0) rotate(-180deg); 
+    }
+    20% { 
+        opacity: 1; 
+        transform: translate(-50%, -50%) scale(1.2) rotate(10deg); 
+    }
+    80% { 
+        opacity: 1; 
+        transform: translate(-50%, -50%) scale(1) rotate(-2deg); 
+    }
+    100% { 
+        opacity: 0; 
+        transform: translate(-50%, -50%) scale(0.8) rotate(0deg); 
+    }
+}
+
+/* Comic Footer */
+.comic-footer-banner {
+    background: linear-gradient(45deg, #FFD700, #FF6B6B);
+    border: 3px solid #000;
+    border-radius: 20px;
+    padding: 10px 20px;
+    display: inline-block;
+    box-shadow: 4px 4px 0px #000;
+}
+
+.comic-footer-text {
+    font-family: 'Bangers', cursive;
+    font-size: 1.3rem;
+    text-shadow: 2px 2px 0px #000;
+    color: #000;
+    letter-spacing: 1px;
+}
+
+/* Loading Animation Enhancement */
+.comic-loading {
+    animation: comicShake 0.5s ease-in-out infinite;
+}
+
+@keyframes comicShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-2px) rotate(-1deg); }
+    75% { transform: translateX(2px) rotate(1deg); }
+}
+
+/* Enhanced Comic Book Sound Effects */
+.btn::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 20px;
+    height: 20px;
+    background: radial-gradient(circle, #FFD700, #FFA500);
+    border: 2px solid #000;
+    border-radius: 50%;
+    opacity: 0;
+    animation: comicPop 0.3s ease;
+    z-index: 10;
+}
+
+.btn:hover::before {
+    opacity: 1;
+    animation: comicBurst 0.6s ease;
+}
+
+@keyframes comicBurst {
+    0% { 
+        opacity: 0; 
+        transform: scale(0) rotate(0deg); 
+    }
+    50% { 
+        opacity: 1; 
+        transform: scale(1.5) rotate(180deg); 
+    }
+    100% { 
+        opacity: 0; 
+        transform: scale(2) rotate(360deg); 
+    }
+}
+
+/* Comic Book Texture Enhancement */
+.card-body {
+    position: relative;
+    background: linear-gradient(45deg, 
+        rgba(255,255,255,0.9) 25%, 
+        transparent 25%), 
+    linear-gradient(-45deg, 
+        rgba(255,255,255,0.9) 25%, 
+        transparent 25%);
+    background-size: 4px 4px;
+    background-position: 0 0, 2px 2px;
+}
+
+/* Enhanced Speech Bubble Tails */
+.card.comic-card-sarcasm::before {
+    border-top-color: #FFD700;
+}
+
+.card.comic-card-paraphrase::before {
+    border-top-color: #4ECDC4;
+}
+
+.card.comic-card-fact::before {
+    border-top-color: #96CEB4;
+}
+
+/* Improved Mobile Speech Bubbles */
+@media (max-width: 768px) {
+    .card::before,
+    .card::after {
+        display: none;
+    }
+    
+    .comic-banner {
+        transform: rotate(0deg);
+        margin: 10px 5px;
+    }
+    
+    .comic-text {
+        font-size: 1.2rem;
+    }
+}
+
+/* Comic Book Thought Bubble Effect for Results */
+.comic-result::before {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    left: 25px;
+    width: 12px;
+    height: 12px;
+    background: #FFFFFF;
+    border: 2px solid #000;
+    border-radius: 50%;
+}
+
+.comic-result::after {
+    content: '';
+    position: absolute;
+    bottom: -15px;
+    left: 30px;
+    width: 6px;
+    height: 6px;
+    background: #FFFFFF;
+    border: 2px solid #000;
+    border-radius: 50%;
+}
+
+/* Enhanced Typography Shadows */
+.card-title,
+.comic-verdict-text,
+.comic-text {
+    text-shadow: 
+        3px 3px 0px #000,
+        -1px -1px 0px #000,
+        1px -1px 0px #000,
+        -1px 1px 0px #000,
+        0px 0px 5px rgba(255, 215, 0, 0.5);
+}
+
+/* Fun Hover Effects for Tabs */
+.nav-tabs .nav-link:not(.active):hover::after {
+    content: '💥';
+    position: absolute;
+    top: -10px;
+    right: 5px;
+    font-size: 0.8rem;
+    animation: bounce 0.5s ease infinite alternate;
+}
+
+/* Comic Book Page Turn Effect */
+.tab-content {
+    animation: pageFlip 0.5s ease-in-out;
+}
+
+@keyframes pageFlip {
+    0% { 
+        opacity: 0.7; 
+        transform: rotateY(-15deg) scale(0.95); 
+    }
+    100% { 
+        opacity: 1; 
+        transform: rotateY(0deg) scale(1); 
+    }
+}
+
+/* Enhanced Status Indicators */
+.status-indicator.status-online {
+    background: radial-gradient(circle, #28a745, #20c997);
+    box-shadow: 0 0 10px rgba(40, 167, 69, 0.5);
+}
+
+.status-indicator.status-offline {
+    background: radial-gradient(circle, #dc3545, #fd7e14);
+    box-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
+}
+

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FactCheck-MM: KAPOW! Multimodal NLP System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-mask"></i>
+                FactCheck-MM
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text">
+                    🦸‍♂️ Sarcasm Detection Hero v1.0
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-5">
+        <div class="row">
+            <div class="col-md-12">
+                <h1 class="text-center mb-4">
+                    <i class="fas fa-bolt"></i>
+                    FACTCHECK-MM SYSTEM
+                </h1>
+                <div class="text-center mb-5">
+                    <div class="comic-banner">
+                        <span class="comic-text">DETECTING SARCASM WITH SUPER POWERS!</span>
+                    </div>
+                    <p class="comic-subtitle">
+                        🚀 Advanced Multimodal NLP • Sarcasm Detection • Paraphrase Analysis • Fact Verification
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Comic Book Style Tabs -->
+        <ul class="nav nav-tabs justify-content-center" id="myTabs">
+            <li class="nav-item">
+                <a class="nav-link active" id="sarcasm-tab" data-bs-toggle="tab" href="#sarcasm">
+                    <i class="fas fa-smile-wink"></i>
+                    SARCASM DETECTOR
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" id="paraphrase-tab" data-bs-toggle="tab" href="#paraphrase">
+                    <i class="fas fa-exchange-alt"></i>
+                    PARAPHRASE SCANNER
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" id="factcheck-tab" data-bs-toggle="tab" href="#factcheck">
+                    <i class="fas fa-shield-alt"></i>
+                    FACT CHECKER
+                </a>
+            </li>
+        </ul>
+        
+        <div class="tab-content mt-4">
+            <!-- Sarcasm Detection Tab -->
+            <div class="tab-pane fade show active" id="sarcasm">
+                <div class="row justify-content-center">
+                    <div class="col-md-8">
+                        <div class="card shadow comic-card-sarcasm">
+                            <div class="card-header">
+                                <h5 class="card-title">
+                                    <i class="fas fa-smile-wink"></i>
+                                    SARCASM DETECTION CHAMBER
+                                </h5>
+                                <div class="comic-subtitle-small">
+                                    😏 Is it sarcastic or sincere? Let's find out!
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="comic-instruction">
+                                    📝 Drop your text below and watch the magic happen...
+                                </div>
+                                <div class="mb-3">
+                                    <label for="sarcasmText" class="form-label comic-label">
+                                        💬 Enter Your Text:
+                                    </label>
+                                    <textarea class="form-control comic-input" id="sarcasmText" rows="4" 
+                                              placeholder="Type something sarcastic... or not! 😉 
+Example: 'Oh great, another meeting...'"></textarea>
+                                </div>
+                                <div class="text-center">
+                                    <button class="btn btn-warning comic-btn-primary" onclick="detectSarcasm()" id="sarcasmBtn">
+                                        <i class="fas fa-search"></i>
+                                        ANALYZE SARCASM!
+                                    </button>
+                                </div>
+                                <div id="sarcasmResult" class="result-card mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Paraphrase Check Tab -->
+            <div class="tab-pane fade" id="paraphrase">
+                <div class="row justify-content-center">
+                    <div class="col-md-8">
+                        <div class="card shadow comic-card-paraphrase">
+                            <div class="card-header">
+                                <h5 class="card-title">
+                                    <i class="fas fa-exchange-alt"></i>
+                                    PARAPHRASE DETECTION LAB
+                                </h5>
+                                <div class="comic-subtitle-small">
+                                    🔄 Do these sentences mean the same thing?
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="comic-instruction">
+                                    🥊 Enter two sentences and let them battle it out!
+                                </div>
+                                <div class="mb-3">
+                                    <label for="sentence1" class="form-label comic-label">
+                                        ⚡ First Sentence:
+                                    </label>
+                                    <textarea class="form-control comic-input" id="sentence1" rows="2" 
+                                              placeholder="Enter the first sentence here..."></textarea>
+                                </div>
+                                <div class="comic-vs">VS</div>
+                                <div class="mb-3">
+                                    <label for="sentence2" class="form-label comic-label">
+                                        💥 Second Sentence:
+                                    </label>
+                                    <textarea class="form-control comic-input" id="sentence2" rows="2" 
+                                              placeholder="Enter the second sentence here..."></textarea>
+                                </div>
+                                <div class="text-center">
+                                    <button class="btn btn-info comic-btn-secondary" onclick="checkParaphrase()" id="paraphraseBtn">
+                                        <i class="fas fa-search"></i>
+                                        CHECK SIMILARITY!
+                                    </button>
+                                </div>
+                                <div id="paraphraseResult" class="result-card mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Fact Check Tab -->
+            <div class="tab-pane fade" id="factcheck">
+                <div class="row justify-content-center">
+                    <div class="col-md-8">
+                        <div class="card shadow comic-card-fact">
+                            <div class="card-header">
+                                <h5 class="card-title">
+                                    <i class="fas fa-shield-alt"></i>
+                                    FACT VERIFICATION FORTRESS
+                                </h5>
+                                <div class="comic-subtitle-small">
+                                    🕵️ Truth detector activated!
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="comic-instruction">
+                                    🎯 Submit your claim for super-powered fact checking!
+                                </div>
+                                <div class="mb-3">
+                                    <label for="claimText" class="form-label comic-label">
+                                        🔍 Claim to Verify:
+                                    </label>
+                                    <textarea class="form-control comic-input" id="claimText" rows="3" 
+                                              placeholder="Enter a claim to verify... 
+Example: 'The Earth is round and orbits the Sun.'"></textarea>
+                                </div>
+                                <div class="text-center">
+                                    <button class="btn btn-success comic-btn-tertiary" onclick="checkFact()" id="factcheckBtn">
+                                        <i class="fas fa-search"></i>
+                                        VERIFY TRUTH!
+                                    </button>
+                                </div>
+                                <div id="factcheckResult" class="result-card mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- System Status - Comic Control Panel -->
+        <div class="row mt-5">
+            <div class="col-md-12">
+                <div class="card comic-status-panel">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-cogs"></i>
+                            HERO SYSTEM STATUS
+                        </h6>
+                        <div class="comic-subtitle-small">Mission Control Dashboard</div>
+                    </div>
+                    <div class="card-body">
+                        <div id="systemStatus">
+                            <div class="text-center">
+                                <i class="fas fa-spinner fa-spin fa-2x mb-2"></i>
+                                <div class="badge bg-secondary">INITIALIZING SUPER POWERS...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-dark mt-5 py-4">
+        <div class="container text-center">
+            <div class="comic-footer-banner">
+                <span class="comic-footer-text">FACTCHECK-MM © 2025</span>
+            </div>
+            <p class="text-light mb-0 mt-2">
+                🦸‍♂️ Multimodal NLP System • Sarcasm Detection • Powered by AI • Built for Heroes
+            </p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://kit.fontawesome.com/a076d05399.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

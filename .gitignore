@@ -1,0 +1,50 @@
+# Large Data Files - Exclude from GitHub
+data/
+datasets/
+*.csv
+*.json
+*.pkl
+*.h5
+*.npy
+*.wav
+*.mp4
+*.jpg
+*.jpeg
+*.png
+
+# Model Files - Too large for GitHub
+models/
+checkpoints/
+saved_models/
+*.pt
+*.pth
+*.model
+*.bin
+
+# Logs and Temporary Files
+logs/
+temp/
+*.log
+*.tmp
+output/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Virtual Environment
+venv/
+env/
+.env
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Files
+.DS_Store
+Thumbs.db

@@ -1,122 +1,80 @@
-# FactCheck-MM: A Multimodal NLP System for Sarcasm Detection and Claim Verification
+# FactCheck-MM: A Multimodal NLP System
 
-## 📌 Overview
-This project implements **FactCheck-MM**, a modular pipeline for:
-1. **Sarcasm Detection** (text & multimodal)
-2. **Paraphrasing sarcastic text** into literal meaning
-3. **Fact Verification** using FEVER, ClaimBuster, and Google Fact Check APIs
-4. **UI Prototype** with React frontend + FastAPI backend
-5. **Extensions** like offensive sarcasm detection
+A comprehensive system for sarcasm detection, paraphrase analysis, and fact verification using state-of-the-art NLP models.
 
----
+## Features
 
-## 📂 Folder Structure
-```
-FactCheck-MM/
-│── requirements.txt        # Dependencies
-│── README.md               # Setup instructions (this file)
-│── .gitignore
-│
-├── data/                   # Datasets
-│   ├── isarcasm/
-│   ├── fever/
-│   └── liar/
-│
-├── checkpoints/            # Trained models
-│   └── m1_roberta_isarcasm/
-│
-├── src/                    # Source code
-│   ├── milestone1/         # Sarcasm detection
-│   │   └── text_sarcasm.py
-│   ├── milestone2/         # Paraphrasing
-│   │   └── paraphrase_t5.py
-│   ├── milestone3/         # Fact-checking
-│   │   └── fact_verifier.py
-│   ├── milestone4/         # Backend API
-│   │   └── app.py
-│   ├── utils/              # Helper functions
-│   │   ├── preprocessing.py
-│   │   ├── evaluation.py
-│   │   └── config.py
-│   └── extensions/         # Extra features
-│       └── offensive_classifier.py
-│
-└── frontend/               # React frontend (later milestone)
-    ├── package.json
-    ├── src/
-    │   └── App.jsx
-    └── public/
-```
+- **Multimodal Sarcasm Detection**: Analyze text, audio, and visual cues
+- **Paraphrase Detection**: Compare semantic similarity between sentences
+- **Fact Verification**: Evidence-based claim verification
+- **Web Interface**: Interactive dashboard for all functionalities
 
----
+## Quick Start
 
-## ⚙️ Environment Setup (Windows PowerShell)
+### 1. Environment Setup
 
-```powershell
-# Step 1: Create project folder
-mkdir FactCheck-MM; cd FactCheck-MM
+Clone the repository
+git clone <your-repo-url>
+cd FactCheck-MM
 
-# Step 2: Create virtual environment
+Create virtual environment
 python -m venv venv
+source venv/bin/activate # On Windows: venv\Scripts\activate
 
-# Step 3: Activate environment
-.\venv\Scripts\activate
-
-# Step 4: Upgrade pip
-pip install --upgrade pip
-
-# Step 5: Install dependencies
+Install dependencies
 pip install -r requirements.txt
-```
 
----
 
-## ▶️ Running Milestone 1 (Text Sarcasm Detection)
+### 2. Data Preparation
 
-### Train Model
-```powershell
-cd src/milestone1
-python text_sarcasm.py --dataset isarcasm --epochs 3 --batch_size 16
-```
+Ensure your data directory structure matches:
+data/
+├── fact_verification/
+├── multimodal/
+└── text/
 
-### Predict with Saved Model
-```powershell
-python text_sarcasm.py --predict "yeah right, that presentation was *amazing*."
-```
 
-Expected output:
-```json
-{
-  "text": "yeah right, that presentation was *amazing*.",
-  "sarcastic": true,
-  "probs": {
-    "not_sarcastic": 0.12,
-    "sarcastic": 0.88
-  }
-}
-```
+### 3. Training Models
 
----
+Train Milestone 1: Sarcasm Detection
+python scripts/train_milestone1.py
 
-## 🔮 Next Milestones
-- **Milestone 1.2**: Extend sarcasm detection to **multimodal (text + image)**
-- **Milestone 2**: Add **T5 paraphrasing** for sarcastic-to-literal conversion
-- **Milestone 3**: Implement **fact verification** using FEVER + APIs
-- **Milestone 4**: Build **FastAPI backend + React frontend**
-- **Extension**: Offensive sarcasm classifier
+Train Milestone 2: Paraphrase Detection (coming soon)
+python scripts/train_milestone2.py
 
----
+Train Milestone 3: Fact Verification (coming soon)
+python scripts/train_milestone3.py
 
-## ✅ Verification
-Run this command to check everything is installed:
-```powershell
-python -c "import torch, transformers, datasets, evaluate; print('✅ All good!')"
-```
 
----
+### 4. Run the Application
 
-## 📖 References
-- HuggingFace Transformers: https://huggingface.co/transformers/
-- iSarcasm Dataset: https://huggingface.co/datasets/isarcasm
-- FEVER Dataset: https://fever.ai/resources.html
-- ClaimBuster API: https://idir.uta.edu/claimbuster/
+python run_app.py
+
+
+Visit `http://localhost:5000` to access the web interface.
+
+## Project Milestones
+
+- ✅ **Milestone 1**: Multimodal Sarcasm Detection
+- 🔄 **Milestone 2**: Paraphrase Detection
+- 🔄 **Milestone 3**: Fact Verification
+- ✅ **Milestone 4**: Web UI
+
+## Configuration
+
+Edit `config.yaml` to customize:
+- Model parameters
+- Training settings
+- Data paths
+- API configuration
+
+## API Endpoints
+
+- `POST /api/sarcasm-detection`: Analyze text for sarcasm
+- `POST /api/paraphrase-check`: Compare sentence similarity
+- `POST /api/fact-check`: Verify claims
+- `GET /api/health`: System health check
+
+## License
+
+MIT License - see LICENSE file for details.
