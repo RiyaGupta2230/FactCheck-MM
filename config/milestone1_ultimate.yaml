@@ -1,0 +1,55 @@
+# Ultimate configuration for maximum accuracy sarcasm detection
+project:
+  name: "milestone1_ultimate_sarcasm_detection"
+  milestone: 1
+  target_f1: 0.94
+
+# Data paths (matching your structure)
+data:
+  chunks_dir: "data/chunks/ultimate_final"
+  train_pattern: "ultimate_train_chunk_*.csv"
+  test_pattern: "ultimate_test_chunk_*.csv"
+
+# Model configuration
+model:
+  name: "roberta-base"
+  max_length: 256
+  num_labels: 2
+  dropout: 0.15
+  use_linguistic_features: true
+
+# Training parameters
+training:
+  device: "mps"  # Change to "cuda" for RTX
+  batch_size: 16
+  learning_rate: 2e-5
+  epochs_per_chunk: 6
+  warmup_steps: 1000
+  weight_decay: 0.01
+  gradient_accumulation_steps: 4
+  mixed_precision: true
+
+# Hardware optimization
+hardware:
+  dataloader_num_workers: 4
+  pin_memory: true
+  gradient_checkpointing: true
+
+# Feature engineering
+features:
+  linguistic_features: true
+  sentiment_features: true
+  multimodal_features: false
+
+# Ensemble settings
+ensemble:
+  enabled: true
+  models: ["roberta-base", "distilroberta-base"]
+  method: "weighted_voting"
+
+# Paths
+paths:
+  model_dir: "models/milestone_01/final"
+  checkpoint_dir: "models/milestone_01/checkpoints" 
+  ensemble_dir: "models/milestone_01/ensemble"
+  output_dir: "outputs"

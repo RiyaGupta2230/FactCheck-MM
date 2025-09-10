@@ -1,0 +1,18 @@
+# Configuration for inference/prediction
+project:
+  name: "milestone1_inference"
+  
+model:
+  model_path: "models/milestone_01/ensemble"
+  tokenizer: "roberta-base"
+  max_length: 256
+  
+inference:
+  batch_size: 32
+  device: "mps"  # or "cuda"
+  confidence_threshold: 0.5
+  
+output:
+  format: "json"
+  include_confidence: true
+  include_features: true

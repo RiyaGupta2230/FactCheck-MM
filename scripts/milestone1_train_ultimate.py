@@ -1,313 +1,311 @@
-import torch
-import yaml
-import argparse
-import logging
-from pathlib import Path
-import time
-from datetime import datetime
-import json
-import sys
+"""
+Ultimate training script for milestone1 sarcasm detection
+Optimized for maximum accuracy with your prepared chunks
+"""
 import os
+import yaml
+import torch
+import pandas as pd
+import numpy as np
+import glob
+import logging
+from torch.utils.data import Dataset, DataLoader
+from transformers import (
+    RobertaForSequenceClassification, 
+    RobertaTokenizerFast,
+    AdamW,
+    get_linear_schedule_with_warmup
+)
+from sklearn.metrics import accuracy_score, f1_score
+from tqdm import tqdm
+import json
+from milestone1_feature_engineering import prepare_features_for_training
 
-# Add project root to path
-sys.path.append(str(Path(__file__).parent.parent))
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def setup_logging():
-    """Setup logging for the main training script"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('ultimate_training_main.log'),
-            logging.StreamHandler()
-        ]
-    )
-    return logging.getLogger(__name__)
-
-def load_config(config_path):
-    """Load and validate configuration"""
-    if not Path(config_path).exists():
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+class UltimateSarcasmDataset(Dataset):
+    """Enhanced dataset with linguistic features for ultimate performance"""
     
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
+    def __init__(self, texts, labels, features, tokenizer, max_length=256):
+        self.texts = texts
+        self.labels = labels  
+        self.features = features
+        self.tokenizer = tokenizer
+        self.max_length = max_length
     
-    # Validate required sections
-    required_sections = ['training', 'paths', 'model_architecture', 'datasets']
-    for section in required_sections:
-        if section not in config:
-            raise ValueError(f"Missing required configuration section: {section}")
+    def __len__(self):
+        return len(self.texts)
     
-    return config
-
-def discover_training_chunks(config):
-    """Discover available training chunks"""
-    chunks_dir = Path(config['paths']['chunks_dir'])
-    
-    if not chunks_dir.exists():
-        raise FileNotFoundError(f"Chunks directory not found: {chunks_dir}")
-    
-    # Look for training and test chunks
-    train_chunks = sorted(chunks_dir.glob("ultimate_train_chunk_*.csv"))
-    test_chunks = sorted(chunks_dir.glob("ultimate_test_chunk_*.csv"))
-    
-    # If no train/test split, look for regular chunks
-    if not train_chunks:
-        all_chunks = sorted(chunks_dir.glob("ultimate_chunk_*.csv"))
-        return all_chunks, []
-    
-    return train_chunks, test_chunks
-
-def train_single_chunk(trainer, chunk_name, train_chunk_path, test_chunk_path=None):
-    """Train model on a single chunk"""
-    logger = logging.getLogger(__name__)
-    
-    logger.info(f"🎯 Starting training for chunk: {chunk_name}")
-    
-    # Import dataset loader
-    from src.milestone1.enhanced_dataset import create_ultimate_dataloader
-    
-    # Create data loaders
-    train_dataloader = create_ultimate_dataloader(
-        train_chunk_path, 
-        trainer.config, 
-        split='train',
-        batch_size=trainer.config['training']['batch_size'],
-        shuffle=True
-    )
-    
-    val_dataloader = None
-    if test_chunk_path and test_chunk_path.exists():
-        val_dataloader = create_ultimate_dataloader(
-            test_chunk_path,
-            trainer.config,
-            split='test',
-            batch_size=trainer.config['training']['batch_size'],
-            shuffle=False
+    def __getitem__(self, idx):
+        text = str(self.texts.iloc[idx])
+        label = int(self.labels.iloc[idx])
+        
+        # Tokenize text
+        encoding = self.tokenizer(
+            text,
+            max_length=self.max_length,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt'
         )
-    
-    # Train the chunk
-    start_time = time.time()
-    results = trainer.train_ultimate_chunk(chunk_name, train_dataloader, val_dataloader)
-    end_time = time.time()
-    
-    # Add timing information
-    results['training_time_minutes'] = (end_time - start_time) / 60
-    results['training_time_hours'] = results['training_time_minutes'] / 60
-    
-    logger.info(f"✅ Chunk {chunk_name} completed in {results['training_time_minutes']:.1f} minutes")
-    logger.info(f"🎯 Best F1: {results['best_f1']:.4f}, Best Accuracy: {results['best_accuracy']:.4f}")
-    
-    return results
-
-def save_training_summary(all_results, config, total_time):
-    """Save comprehensive training summary"""
-    logger = logging.getLogger(__name__)
-    
-    # Calculate overall statistics
-    summary = {
-        'training_summary': {
-            'start_time': datetime.now().isoformat(),
-            'total_training_time_hours': total_time / 3600,
-            'total_chunks_trained': len(all_results),
-            'config_used': config
-        },
-        'performance_statistics': {
-            'best_f1_score': max(result['best_f1'] for result in all_results) if all_results else 0.0,
-            'average_f1_score': sum(result['best_f1'] for result in all_results) / len(all_results) if all_results else 0.0,
-            'best_accuracy': max(result['best_accuracy'] for result in all_results) if all_results else 0.0,
-            'average_accuracy': sum(result['best_accuracy'] for result in all_results) / len(all_results) if all_results else 0.0
-        },
-        'chunk_results': all_results,
-        'hardware_info': {
-            'device_used': 'cuda' if torch.cuda.is_available() else 'cpu',
-            'gpu_name': torch.cuda.get_device_name() if torch.cuda.is_available() else 'CPU',
-            'mixed_precision': config['hardware']['mixed_precision']
+        
+        # Get linguistic features
+        feature_vector = torch.tensor(
+            self.features.iloc[idx].values, 
+            dtype=torch.float32
+        )
+        
+        return {
+            'input_ids': encoding['input_ids'].flatten(),
+            'attention_mask': encoding['attention_mask'].flatten(),
+            'features': feature_vector,
+            'labels': torch.tensor(label, dtype=torch.long)
         }
-    }
+
+class UltimateTrainer:
+    """Ultimate training class for maximum accuracy"""
     
-    # Save summary
-    summary_path = Path(config['paths']['logs_dir']) / 'ultimate_training_summary.json'
-    summary_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(summary_path, 'w') as f:
-        json.dump(summary, f, indent=2, default=str)
-    
-    logger.info(f"📋 Training summary saved to: {summary_path}")
-    
-    # Display final statistics
-    if all_results:
-        logger.info("\n" + "="*80)
-        logger.info("🎉 ULTIMATE TRAINING COMPLETED!")
-        logger.info("="*80)
-        logger.info(f"📊 Total chunks trained: {len(all_results)}")
-        logger.info(f"⏱️ Total training time: {total_time/3600:.1f} hours")
-        logger.info(f"🏆 Best F1 score: {summary['performance_statistics']['best_f1_score']:.4f}")
-        logger.info(f"📈 Average F1 score: {summary['performance_statistics']['average_f1_score']:.4f}")
-        logger.info(f"🏆 Best accuracy: {summary['performance_statistics']['best_accuracy']:.4f}")
-        logger.info(f"📈 Average accuracy: {summary['performance_statistics']['average_accuracy']:.4f}")
+    def __init__(self, config_path):
+        self.config = self.load_config(config_path)
+        self.device = torch.device(
+            self.config['training']['device'] 
+            if torch.cuda.is_available() or torch.backends.mps.is_available() 
+            else 'cpu'
+        )
+        self.setup_logging()
         
-        # Performance assessment
-        best_f1 = summary['performance_statistics']['best_f1_score']
-        if best_f1 >= 0.85:
-            logger.info("🥇 OUTSTANDING PERFORMANCE! Ready for deployment!")
-        elif best_f1 >= 0.80:
-            logger.info("🥈 EXCELLENT PERFORMANCE! Very competitive results!")
-        elif best_f1 >= 0.75:
-            logger.info("🥉 GOOD PERFORMANCE! Solid results!")
-        else:
-            logger.info("📈 MODERATE PERFORMANCE - Consider ensemble building!")
-        
-        logger.info("="*80)
+    def load_config(self, config_path):
+        """Load training configuration"""
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
     
-    return summary
+    def setup_logging(self):
+        """Setup logging for training"""
+        log_dir = os.path.join(self.config['paths']['output_dir'], 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        
+        log_file = os.path.join(log_dir, 'ultimate_training.log')
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    
+    def train_ultimate_model(self):
+        """Train the ultimate sarcasm detection model"""
+        
+        logger.info("🚀 Starting Ultimate Sarcasm Detection Training")
+        logger.info(f"🎯 Target F1: {self.config['project']['target_f1']}")
+        logger.info(f"📱 Device: {self.device}")
+        
+        # Initialize tokenizer
+        tokenizer = RobertaTokenizerFast.from_pretrained(self.config['model']['name'])
+        
+        # Get all training chunks
+        chunks_dir = self.config['data']['chunks_dir']
+        train_pattern = self.config['data']['train_pattern']
+        train_files = sorted(glob.glob(os.path.join(chunks_dir, train_pattern)))
+        
+        logger.info(f"📁 Found {len(train_files)} training chunks")
+        
+        # Training results storage
+        training_results = []
+        best_f1 = 0
+        
+        # Initialize model (will be reused across chunks)
+        model = RobertaForSequenceClassification.from_pretrained(
+            self.config['model']['name'], 
+            num_labels=2
+        )
+        model.to(self.device)
+        
+        # Process each chunk
+        for chunk_idx, chunk_file in enumerate(train_files):
+            logger.info(f"\n🔄 Processing chunk {chunk_idx + 1}/{len(train_files)}")
+            logger.info(f"📄 File: {os.path.basename(chunk_file)}")
+            
+            # Load and prepare chunk data
+            df = pd.read_csv(chunk_file)
+            logger.info(f"📊 Loaded {len(df)} samples")
+            
+            # Extract enhanced features
+            df_enhanced, feature_columns = prepare_features_for_training(df)
+            
+            # Create dataset
+            dataset = UltimateSarcasmDataset(
+                texts=df_enhanced['text'],
+                labels=df_enhanced['label'],
+                features=df_enhanced[feature_columns],
+                tokenizer=tokenizer,
+                max_length=self.config['model']['max_length']
+            )
+            
+            # Create dataloader
+            dataloader = DataLoader(
+                dataset,
+                batch_size=self.config['training']['batch_size'],
+                shuffle=True,
+                num_workers=self.config['hardware']['dataloader_num_workers'],
+                pin_memory=self.config['hardware']['pin_memory']
+            )
+            
+            # Setup optimizer and scheduler for this chunk
+            optimizer = AdamW(
+                model.parameters(),
+                lr=self.config['training']['learning_rate'],
+                weight_decay=self.config['training']['weight_decay']
+            )
+            
+            total_steps = len(dataloader) * self.config['training']['epochs_per_chunk']
+            scheduler = get_linear_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=self.config['training']['warmup_steps'],
+                num_training_steps=total_steps
+            )
+            
+            # Train on this chunk
+            chunk_results = self.train_on_chunk(
+                model, dataloader, optimizer, scheduler, chunk_idx + 1
+            )
+            
+            training_results.append({
+                'chunk_idx': chunk_idx + 1,
+                'chunk_file': chunk_file,
+                'samples': len(df),
+                'results': chunk_results
+            })
+            
+            # Save best model
+            final_f1 = chunk_results[-1]['f1']
+            if final_f1 > best_f1:
+                best_f1 = final_f1
+                self.save_model(model, tokenizer, chunk_idx + 1, final_f1)
+                logger.info(f"💾 New best model saved! F1: {final_f1:.4f}")
+        
+        # Save training history
+        self.save_training_history(training_results)
+        
+        logger.info("\n🎉 Ultimate training completed!")
+        logger.info(f"🏆 Best F1 Score: {best_f1:.4f}")
+        
+        return training_results
+    
+    def train_on_chunk(self, model, dataloader, optimizer, scheduler, chunk_num):
+        """Train model on a single chunk"""
+        
+        model.train()
+        epoch_results = []
+        
+        for epoch in range(self.config['training']['epochs_per_chunk']):
+            total_loss = 0
+            all_predictions = []
+            all_labels = []
+            
+            pbar = tqdm(
+                dataloader, 
+                desc=f"Chunk {chunk_num}, Epoch {epoch + 1}"
+            )
+            
+            for batch in pbar:
+                optimizer.zero_grad()
+                
+                # Move to device
+                batch = {k: v.to(self.device) for k, v in batch.items()}
+                
+                # Forward pass
+                outputs = model(
+                    input_ids=batch['input_ids'],
+                    attention_mask=batch['attention_mask'],
+                    labels=batch['labels']
+                )
+                
+                loss = outputs.loss
+                
+                # Backward pass
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                scheduler.step()
+                
+                # Collect metrics
+                total_loss += loss.item()
+                predictions = torch.argmax(outputs.logits, dim=1)
+                all_predictions.extend(predictions.cpu().numpy())
+                all_labels.extend(batch['labels'].cpu().numpy())
+                
+                pbar.set_postfix({
+                    'loss': f"{loss.item():.4f}",
+                    'lr': f"{scheduler.get_last_lr()[0]:.2e}"
+                })
+            
+            # Calculate epoch metrics
+            epoch_loss = total_loss / len(dataloader)
+            epoch_accuracy = accuracy_score(all_labels, all_predictions)
+            epoch_f1 = f1_score(all_labels, all_predictions)
+            
+            epoch_result = {
+                'epoch': epoch + 1,
+                'loss': epoch_loss,
+                'accuracy': epoch_accuracy,
+                'f1': epoch_f1
+            }
+            
+            epoch_results.append(epoch_result)
+            
+            logger.info(
+                f"Chunk {chunk_num}, Epoch {epoch + 1}: "
+                f"Loss: {epoch_loss:.4f}, Acc: {epoch_accuracy:.4f}, F1: {epoch_f1:.4f}"
+            )
+        
+        return epoch_results
+    
+    def save_model(self, model, tokenizer, chunk_idx, f1_score):
+        """Save the model"""
+        
+        model_dir = self.config['paths']['model_dir']
+        os.makedirs(model_dir, exist_ok=True)
+        
+        # Save with chunk and score info
+        model_name = f"best_model_chunk_{chunk_idx}_f1_{f1_score:.4f}"
+        model_path = os.path.join(model_dir, model_name)
+        
+        model.save_pretrained(model_path)
+        tokenizer.save_pretrained(model_path)
+        
+        # Also save as latest best
+        latest_path = os.path.join(model_dir, "latest_best")
+        model.save_pretrained(latest_path)
+        tokenizer.save_pretrained(latest_path)
+    
+    def save_training_history(self, results):
+        """Save training history"""
+        
+        output_dir = self.config['paths']['output_dir']
+        os.makedirs(output_dir, exist_ok=True)
+        
+        history_file = os.path.join(output_dir, 'ultimate_training_history.json')
+        
+        with open(history_file, 'w') as f:
+            json.dump(results, f, indent=2)
+        
+        logger.info(f"📋 Training history saved: {history_file}")
 
 def main():
     """Main training function"""
-    # Setup argument parser
-    parser = argparse.ArgumentParser(description='Ultimate Multimodal Sarcasm Detection Training')
-    parser.add_argument('--config', default='config/milestone1_ultimate_config.yaml',
-                       help='Path to configuration file')
-    parser.add_argument('--chunk', type=str, help='Train specific chunk only (e.g., ultimate_train_chunk_001)')
-    parser.add_argument('--resume', type=str, help='Resume from checkpoint')
-    parser.add_argument('--dry_run', action='store_true', help='Perform dry run without actual training')
-    parser.add_argument('--build_ensemble', action='store_true', help='Build ensemble after training')
+    import sys
     
-    args = parser.parse_args()
+    if len(sys.argv) != 2:
+        print("Usage: python milestone1_train_ultimate.py <config_path>")
+        sys.exit(1)
     
-    # Setup logging
-    logger = setup_logging()
+    config_path = sys.argv[1]
     
-    logger.info("🚀 ULTIMATE MULTIMODAL SARCASM DETECTION TRAINING")
-    logger.info("🎯 Target: 85%+ F1 Score")
-    logger.info("🔥 RTX 2050 Optimized")
-    logger.info(f"📅 Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    trainer = UltimateTrainer(config_path)
+    results = trainer.train_ultimate_model()
     
-    try:
-        # Load configuration
-        config = load_config(args.config)
-        logger.info(f"✅ Configuration loaded from: {args.config}")
-        
-        # Discover training chunks
-        train_chunks, test_chunks = discover_training_chunks(config)
-        logger.info(f"📦 Found {len(train_chunks)} training chunks")
-        if test_chunks:
-            logger.info(f"📦 Found {len(test_chunks)} test chunks")
-        
-        if not train_chunks:
-            logger.error("❌ No training chunks found! Please run data preparation first.")
-            return 1
-        
-        # Initialize trainer
-        from src.milestone1.advanced_trainer import UltimateRTXTrainer
-        trainer = UltimateRTXTrainer(args.config)
-        
-        # Resume from checkpoint if specified
-        if args.resume:
-            logger.info(f"🔄 Resuming from checkpoint: {args.resume}")
-            trainer.load_checkpoint(args.resume)
-        
-        # Dry run check
-        if args.dry_run:
-            logger.info("🧪 Dry run mode - validating setup without training")
-            logger.info("✅ Setup validation successful!")
-            return 0
-        
-        # Training loop
-        all_results = []
-        total_start_time = time.time()
-        
-        if args.chunk:
-            # Train specific chunk
-            chunk_name = args.chunk
-            train_chunk_path = None
-            test_chunk_path = None
-            
-            # Find the specified chunk
-            for train_chunk in train_chunks:
-                if chunk_name in train_chunk.name:
-                    train_chunk_path = train_chunk
-                    # Find corresponding test chunk
-                    test_chunk_name = train_chunk.name.replace('train_', 'test_')
-                    test_chunk_path = train_chunk.parent / test_chunk_name
-                    break
-            
-            if not train_chunk_path:
-                logger.error(f"❌ Chunk '{chunk_name}' not found!")
-                return 1
-            
-            # Train single chunk
-            result = train_single_chunk(trainer, chunk_name, train_chunk_path, test_chunk_path)
-            all_results.append(result)
-            
-        else:
-            # Train all chunks
-            for i, train_chunk in enumerate(train_chunks):
-                chunk_name = train_chunk.stem
-                
-                # Find corresponding test chunk
-                test_chunk_path = None
-                if test_chunks:
-                    test_chunk_name = train_chunk.name.replace('train_', 'test_')
-                    potential_test_chunk = train_chunk.parent / test_chunk_name
-                    if potential_test_chunk.exists():
-                        test_chunk_path = potential_test_chunk
-                
-                logger.info(f"\n{'='*60}")
-                logger.info(f"📦 Processing chunk {i+1}/{len(train_chunks)}: {chunk_name}")
-                logger.info(f"{'='*60}")
-                
-                # Train chunk
-                result = train_single_chunk(trainer, chunk_name, train_chunk, test_chunk_path)
-                all_results.append(result)
-                
-                # Save intermediate results
-                intermediate_summary = {
-                    'completed_chunks': i + 1,
-                    'total_chunks': len(train_chunks),
-                    'results_so_far': all_results,
-                    'timestamp': datetime.now().isoformat()
-                }
-                
-                intermediate_path = Path(config['paths']['logs_dir']) / 'intermediate_results.json'
-                intermediate_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                with open(intermediate_path, 'w') as f:
-                    json.dump(intermediate_summary, f, indent=2, default=str)
-        
-        total_end_time = time.time()
-        total_training_time = total_end_time - total_start_time
-        
-        # Save final training summary
-        summary = save_training_summary(all_results, config, total_training_time)
-        
-        # Build ensemble if requested
-        if args.build_ensemble:
-            logger.info("\n🔧 Building ultimate ensemble...")
-            try:
-                from scripts.build_ultimate_ensemble import UltimateEnsembleBuilder
-                ensemble_builder = UltimateEnsembleBuilder(args.config)
-                ensemble_metrics = ensemble_builder.build_complete_ensemble()
-                
-                logger.info(f"🎉 Ensemble built successfully!")
-                logger.info(f"🎯 Ensemble F1: {ensemble_metrics['f1']:.4f}")
-                logger.info(f"🎯 Ensemble Accuracy: {ensemble_metrics['accuracy']:.4f}")
-                
-            except Exception as e:
-                logger.error(f"❌ Ensemble building failed: {e}")
-        
-        logger.info("\n🎉 ALL TRAINING COMPLETED SUCCESSFULLY!")
-        return 0
-        
-    except KeyboardInterrupt:
-        logger.info("\n⚠️ Training interrupted by user")
-        return 1
-    except Exception as e:
-        logger.error(f"❌ Training failed with error: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
-
+    print("✅ Ultimate training completed successfully!")
+    print(f"📊 Processed {len(results)} chunks")
+    
 if __name__ == "__main__":
-    exit_code = main()
-    sys.exit(exit_code)
+    main()
