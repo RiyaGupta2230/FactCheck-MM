@@ -1,10 +1,12 @@
 """
-Advanced feature engineering for sarcasm detection
-Extracts linguistic and contextual features for maximum accuracy
+Advanced feature engineering for milestone1 sarcasm detection
+Extracts linguistic and contextual features for maximum accuracy - CORRECTED VERSION
 """
 import pandas as pd
 import numpy as np
 import re
+import os
+import glob
 from textblob import TextBlob
 import emoji
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -52,8 +54,11 @@ def extract_linguistic_features(df):
     
     # 2. Sentiment features
     def get_sentiment_features(text):
-        blob = TextBlob(text)
-        return blob.sentiment.polarity, blob.sentiment.subjectivity
+        try:
+            blob = TextBlob(text)
+            return blob.sentiment.polarity, blob.sentiment.subjectivity
+        except:
+            return 0.0, 0.0
     
     sentiment_data = df['text_clean'].apply(get_sentiment_features)
     df['sentiment_polarity'] = [x[0] for x in sentiment_data]
@@ -99,34 +104,71 @@ def extract_linguistic_features(df):
     return df
 
 def extract_tfidf_features(df, max_features=100):
-    """Extract TF-IDF features for important terms"""
+    """Extract TF-IDF features for important terms - CORRECTED VERSION"""
     
     logger.info("🔍 Extracting TF-IDF features...")
     
-    # Create TF-IDF vectorizer
+    # Get dataset size for parameter adjustment
+    total_docs = len(df)
+    
+    # Dynamically adjust min_df and max_df based on dataset size
+    if total_docs < 10:
+        # Very small dataset - use minimal constraints
+        min_df = 1
+        max_df = 1.0
+        max_features = min(20, max_features)
+    elif total_docs < 100:
+        # Small dataset - relaxed constraints
+        min_df = 1
+        max_df = 0.95
+        max_features = min(50, max_features)
+    else:
+        # Larger dataset - standard constraints
+        min_df = 2
+        max_df = 0.8
+        
+    # Ensure min_df doesn't conflict with max_df
+    max_docs_for_term = int(total_docs * max_df)
+    if min_df >= max_docs_for_term:
+        min_df = max(1, max_docs_for_term - 1)
+        logger.warning(f"⚠️ Adjusted min_df to {min_df} for dataset size {total_docs}")
+    
+    # Create TF-IDF vectorizer with safe parameters
     tfidf = TfidfVectorizer(
         max_features=max_features,
         ngram_range=(1, 2),
         stop_words='english',
-        min_df=2,
-        max_df=0.8
+        min_df=min_df,
+        max_df=max_df
     )
     
-    # Fit and transform
-    tfidf_features = tfidf.fit_transform(df['text_clean'])
-    
-    # Select most discriminative features
-    if 'label' in df.columns:
-        selector = SelectKBest(f_classif, k=min(50, max_features))
-        selected_features = selector.fit_transform(tfidf_features, df['label'])
+    try:
+        # Fit and transform
+        tfidf_features = tfidf.fit_transform(df['text_clean'])
+        logger.info(f"✅ TF-IDF created {tfidf_features.shape[1]} features from {total_docs} documents")
         
-        # Add to dataframe
-        feature_names = [f"tfidf_{i}" for i in range(selected_features.shape[1])]
-        tfidf_df = pd.DataFrame(selected_features.toarray(), columns=feature_names, index=df.index)
-        df = pd.concat([df, tfidf_df], axis=1)
+        # Feature selection if labels available
+        if 'label' in df.columns and tfidf_features.shape[1] > 0:
+            # Select top features (at most half of available features)
+            k = min(50, tfidf_features.shape[1] // 2, max_features // 2)
+            if k > 0:
+                selector = SelectKBest(f_classif, k=k)
+                selected_features = selector.fit_transform(tfidf_features, df['label'])
+                
+                # Add to dataframe
+                feature_names = [f"tfidf_{i}" for i in range(selected_features.shape[1])]
+                tfidf_df = pd.DataFrame(selected_features.toarray(), columns=feature_names, index=df.index)
+                df = pd.concat([df, tfidf_df], axis=1)
+                
+                logger.info(f"✅ Added {len(feature_names)} selected TF-IDF features")
+            else:
+                logger.warning("⚠️ No TF-IDF features selected due to small dataset")
+        
+    except ValueError as e:
+        logger.warning(f"⚠️ TF-IDF extraction failed: {e}. Skipping TF-IDF features.")
+        # Continue without TF-IDF features - linguistic features are still valuable
     
-    logger.info("✅ TF-IDF features extracted successfully")
-    
+    logger.info("✅ TF-IDF features extraction completed")
     return df
 
 def prepare_features_for_training(df):
@@ -136,7 +178,7 @@ def prepare_features_for_training(df):
     df = extract_linguistic_features(df)
     df = extract_tfidf_features(df)
     
-    # Feature columns
+    # Feature columns (linguistic features)
     feature_columns = [
         'exclamation_count', 'question_count', 'caps_ratio', 'ellipsis_count',
         'sentiment_polarity', 'sentiment_subjectivity', 'sarcasm_indicator_count',
@@ -144,7 +186,7 @@ def prepare_features_for_training(df):
         'emoji_count', 'mention_count', 'hashtag_count', 'url_count'
     ]
     
-    # Add TF-IDF features
+    # Add TF-IDF features if they exist
     tfidf_columns = [col for col in df.columns if col.startswith('tfidf_')]
     feature_columns.extend(tfidf_columns)
     
@@ -158,11 +200,46 @@ def prepare_features_for_training(df):
     return df, feature_columns
 
 if __name__ == "__main__":
-    # Example usage
-    sample_data = pd.DataFrame({
-        'text': ['Oh sure, what a brilliant idea!', 'This is genuinely helpful.'],
-        'label': [1, 0]
-    })
+    import sys
+    import argparse
     
-    enhanced_data, features = prepare_features_for_training(sample_data)
-    print("Feature columns:", features[:10])  # Show first 10 features
+    # Command line argument parsing
+    parser = argparse.ArgumentParser(description='Extract features for milestone1 sarcasm detection')
+    parser.add_argument('--input_dir', required=True, help='Input directory with chunk files')
+    parser.add_argument('--output_dir', required=True, help='Output directory for processed files')
+    
+    args = parser.parse_args()
+    
+    # Create output directory
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Process all chunk files in input directory
+    input_files = glob.glob(os.path.join(args.input_dir, "*.csv"))
+    
+    if not input_files:
+        logger.error(f"❌ No CSV files found in {args.input_dir}")
+        sys.exit(1)
+    
+    logger.info(f"🚀 Starting feature engineering on {len(input_files)} files")
+    
+    for input_file in input_files:
+        logger.info(f"📄 Processing: {os.path.basename(input_file)}")
+        
+        # Load chunk
+        df = pd.read_csv(input_file)
+        logger.info(f"📊 Loaded {len(df)} samples")
+        
+        # Extract features
+        df_enhanced, feature_columns = prepare_features_for_training(df)
+        
+        # Save enhanced chunk
+        output_filename = f"enhanced_{os.path.basename(input_file)}"
+        output_path = os.path.join(args.output_dir, output_filename)
+        df_enhanced.to_csv(output_path, index=False)
+        
+        logger.info(f"💾 Saved enhanced data: {output_path}")
+        logger.info(f"✨ Added {len(feature_columns)} features")
+    
+    logger.info("🎉 Feature engineering completed successfully!")
+    print(f"✅ Processed {len(input_files)} chunk files")
+    print(f"📁 Enhanced files saved to: {args.output_dir}")

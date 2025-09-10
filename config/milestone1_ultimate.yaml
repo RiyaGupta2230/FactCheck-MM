@@ -1,55 +1,34 @@
-# Ultimate configuration for maximum accuracy sarcasm detection
+# MacBook M2 Optimized Configuration
 project:
-  name: "milestone1_ultimate_sarcasm_detection"
-  milestone: 1
-  target_f1: 0.94
+  name: "milestone1_ultimate_m2"
+  target_f1: 0.93
 
-# Data paths (matching your structure)
-data:
-  chunks_dir: "data/chunks/ultimate_final"
-  train_pattern: "ultimate_train_chunk_*.csv"
-  test_pattern: "ultimate_test_chunk_*.csv"
-
-# Model configuration
 model:
-  name: "roberta-base"
-  max_length: 256
-  num_labels: 2
+  name: "roberta-base"        # Perfect fit for M2
+  num_labels: 2               # Binary classification
+  max_length: 256             # Good context window
   dropout: 0.15
-  use_linguistic_features: true
 
-# Training parameters
 training:
-  device: "mps"  # Change to "cuda" for RTX
-  batch_size: 16
+  device: "mps"               # Metal Performance Shaders
+  batch_size: 16              # Optimal for 8GB unified memory
   learning_rate: 2e-5
   epochs_per_chunk: 6
-  warmup_steps: 1000
-  weight_decay: 0.01
-  gradient_accumulation_steps: 4
-  mixed_precision: true
-
-# Hardware optimization
-hardware:
-  dataloader_num_workers: 4
-  pin_memory: true
+  gradient_accumulation_steps: 4  # Effective batch = 64
+  mixed_precision: true       # Essential for memory efficiency
   gradient_checkpointing: true
 
-# Feature engineering
-features:
-  linguistic_features: true
-  sentiment_features: true
-  multimodal_features: false
+hardware:
+  dataloader_num_workers: 4   # M2 CPU efficiency
+  pin_memory: true
+  compile_model: true         # PyTorch 2.0 optimization
 
-# Ensemble settings
-ensemble:
-  enabled: true
-  models: ["roberta-base", "distilroberta-base"]
-  method: "weighted_voting"
+data:
+  chunks_dir: "data/processed/milestone1"
+  train_pattern: "enhanced_ultimate_train_chunk_*.csv"
+  test_pattern: "enhanced_ultimate_test_chunk_*.csv"
+  num_classes: 2              # Keep binary
 
-# Paths
 paths:
   model_dir: "models/milestone_01/final"
-  checkpoint_dir: "models/milestone_01/checkpoints" 
-  ensemble_dir: "models/milestone_01/ensemble"
-  output_dir: "outputs"
+  output_dir: "outputs/milestone1"
