@@ -1,34 +1,30 @@
-# MacBook M2 Optimized Configuration
+# Your current config is PERFECT for M2:
 project:
   name: "milestone1_ultimate_m2"
-  target_f1: 0.93
+  target_f1: 0.94
 
 model:
-  name: "roberta-base"        # Perfect fit for M2
-  num_labels: 2               # Binary classification
-  max_length: 256             # Good context window
-  dropout: 0.15
+  name: "roberta-base"         # ✅ Perfect size for M2 8GB
+  num_labels: 2                # ✅ Binary classification (optimal)
+  max_length: 256              # ✅ Good context window
+  dropout: 0.15                # ✅ Optimal regularization
 
 training:
-  device: "mps"               # Metal Performance Shaders
-  batch_size: 16              # Optimal for 8GB unified memory
-  learning_rate: 2e-5
-  epochs_per_chunk: 6
-  gradient_accumulation_steps: 4  # Effective batch = 64
-  mixed_precision: true       # Essential for memory efficiency
-  gradient_checkpointing: true
+  device: "mps"                # ✅ Metal Performance Shaders
+  batch_size: 16               # ✅ PERFECT for M2 8GB unified memory
+  learning_rate: 2e-5          # ✅ Optimal for RoBERTa fine-tuning
+  epochs_per_chunk: 6          # ✅ Good balance for convergence
+  gradient_accumulation_steps: 4  # ✅ Effective batch = 64
+  warmup_steps: 1000           # ✅ Smooth learning rate warmup
+  weight_decay: 0.01           # ✅ Perfect regularization
+  mixed_precision: true        # ✅ Essential for M2 efficiency
 
 hardware:
-  dataloader_num_workers: 4   # M2 CPU efficiency
-  pin_memory: true
-  compile_model: true         # PyTorch 2.0 optimization
+  dataloader_num_workers: 4    # ✅ Optimal for M2 CPU cores
+  pin_memory: true             # ✅ Memory optimization
+  gradient_checkpointing: true # ✅ Memory efficiency
 
 data:
-  chunks_dir: "data/processed/milestone1"
-  train_pattern: "enhanced_ultimate_train_chunk_*.csv"
-  test_pattern: "enhanced_ultimate_test_chunk_*.csv"
-  num_classes: 2              # Keep binary
-
-paths:
-  model_dir: "models/milestone_01/final"
-  output_dir: "outputs/milestone1"
+  chunks_dir: "data/processed/milestone1"  # ✅ Uses enhanced features
+  train_pattern: "enhanced_ultimate_train_chunk_*.csv"  # ✅ 65 features
+  num_classes: 2               # ✅ Binary classification

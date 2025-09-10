@@ -5,9 +5,10 @@ Optimized for your prepared chunks and maximum accuracy
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+from torch.optim import AdamW
 from transformers import (
     AutoTokenizer, AutoModelForSequenceClassification,
-    AdamW, get_linear_schedule_with_warmup
+    get_linear_schedule_with_warmup
 )
 import pandas as pd
 import numpy as np
