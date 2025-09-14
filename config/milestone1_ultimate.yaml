@@ -11,23 +11,22 @@ model:
 training:
   device: "mps"
   batch_size: 16
-  learning_rate: 2e-5
+  learning_rate: 1e-5            # lower for stability on MPS
   epochs_per_chunk: 6
   gradient_accumulation_steps: 4
   warmup_steps: 1000
   weight_decay: 0.01
-  mixed_precision: true
+  mixed_precision: false         # AMP off avoids NaNs on MPS
 
 hardware:
-  dataloader_num_workers: 4
-  pin_memory: true
+  dataloader_num_workers: 0      # avoid fork + tokenizers issues on macOS
+  pin_memory: false              # not useful/supported on MPS
   gradient_checkpointing: true
 
-# REQUIRED 'paths' SECTION (this was missing)
 paths:
   model_dir: "models/milestone_01/final"
   checkpoint_dir: "models/milestone_01/checkpoints"
-  ensemble_dir: "models/milestone_01/ensemble"  
+  ensemble_dir: "models/milestone_01/ensemble"
   output_dir: "outputs/milestone1"
 
 data:

@@ -127,6 +127,11 @@ class UltimateTrainer:
             
             # Load and prepare chunk data
             df = pd.read_csv(chunk_file)
+            bad = df['label'].isna() | (df['label'] < 0) | (df['label'] >= model.config.num_labels)
+            if bad.any():
+                n_bad = int(bad.sum())
+                logger.error(f"Found {n_bad} invalid labels in {os.path.basename(chunk_file)}. Dropping them.")
+                df = df.loc[~bad].reset_index(drop=True)
             logger.info(f"📊 Loaded {len(df)} samples")
             
             # Extract enhanced features
@@ -157,7 +162,9 @@ class UltimateTrainer:
             optimizer = AdamW(
                 model.parameters(),
                 lr=lr,
-                weight_decay=wd
+                weight_decay=wd,
+                eps=1e-8,           # stability on Apple Silicon
+                betas=(0.9, 0.999)
             )
             
             total_steps = len(dataloader) * self.config['training']['epochs_per_chunk']
@@ -215,6 +222,24 @@ class UltimateTrainer:
                 
                 # Move to device
                 batch = {k: v.to(self.device) for k, v in batch.items()}
+
+                # ── Label validation (ADD THIS BLOCK) ─────────────────────────
+                labels = batch['labels']
+                # Ensure correct dtype for CE (long / int64)
+                if labels.dtype not in (torch.int64, torch.long):
+                    batch['labels'] = labels.long()
+                    labels = batch['labels']
+
+                # Ensure labels are finite and inside [0, num_labels)
+                num_labels = int(model.config.num_labels)  # e.g., 2
+                lbl_min = labels.min().item()
+                lbl_max = labels.max().item()
+                if (not torch.isfinite(labels.float()).all()) or (lbl_min < 0) or (lbl_max >= num_labels):
+                    logger.error(
+                        f"Invalid labels: min={lbl_min}, max={lbl_max}, expected in [0,{num_labels-1}]. Skipping batch."
+                    )
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
                 
                 # Forward pass
                 outputs = model(
@@ -224,6 +249,10 @@ class UltimateTrainer:
                 )
                 
                 loss = outputs.loss
+                if not torch.isfinite(loss):
+                    logger.warning("⚠️ Non-finite loss encountered, skipping batch")
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
                 
                 # Backward pass
                 loss.backward()
