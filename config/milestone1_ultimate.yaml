@@ -1,5 +1,5 @@
 project:
-  name: "milestone1_ultimate_m2"
+  name: "milestone1_ultimate_m2_multimodal"
   target_f1: 0.94
 
 model:
@@ -8,19 +8,38 @@ model:
   max_length: 256
   dropout: 0.15
 
+# NEW: multimodal settings
+modalities:
+  use_text: true
+  use_image: true          # auto-disables at runtime if no image_path in data
+  use_audio: true          # auto-disables if no audio_path in data
+  fusion_type: "gated"     # "gated" | "cross_attn" | "late"
+  modality_dropout_prob: 0.2
+
+# Encoders for optional modalities (frozen by default)
+vision_encoder:
+  model_name: "google/vit-base-patch16-224"
+  image_size: 224
+  trainable: false
+
+audio_encoder:
+  model_name: "facebook/wav2vec2-base"
+  sample_rate: 16000
+  trainable: false
+
 training:
   device: "mps"
   batch_size: 16
-  learning_rate: 1e-5            # lower for stability on MPS
+  learning_rate: 1e-5
   epochs_per_chunk: 6
   gradient_accumulation_steps: 4
   warmup_steps: 1000
   weight_decay: 0.01
-  mixed_precision: false         # AMP off avoids NaNs on MPS
+  mixed_precision: false     # MPS-stable [FP32] [4]
 
 hardware:
-  dataloader_num_workers: 0      # avoid fork + tokenizers issues on macOS
-  pin_memory: false              # not useful/supported on MPS
+  dataloader_num_workers: 0  # avoid tokenizer fork issues on macOS [5]
+  pin_memory: false          # not beneficial on MPS [4]
   gradient_checkpointing: true
 
 paths:

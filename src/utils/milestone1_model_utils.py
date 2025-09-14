@@ -4,7 +4,7 @@ Model utilities and architectures for milestone1 sarcasm detection
 import torch
 import torch.nn as nn
 from transformers import (
-    AutoModel, AutoConfig, AutoTokenizer,
+    ViTModel, AutoImageProcessor, Wav2Vec2Model, AutoProcessor, AutoModel, AutoConfig, AutoTokenizer,
     RobertaModel, BertModel
 )
 import os
@@ -13,6 +13,120 @@ from typing import Dict, List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
+# NEW imports at top:
+
+class VisionEncoder(nn.Module):
+    def __init__(self, model_name="google/vit-base-patch16-224", trainable=False):
+        super().__init__()
+        self.processor = AutoImageProcessor.from_pretrained(model_name)
+        self.model = ViTModel.from_pretrained(model_name)
+        if not trainable:
+            for p in self.model.parameters():
+                p.requires_grad = False
+        self.out_dim = self.model.config.hidden_size
+
+    def forward(self, images):  # images: pixel_values [B, 3, H, W] preprocessed already
+        outputs = self.model(pixel_values=images)
+        # use CLS token: [B, hidden]
+        return outputs.pooler_output
+
+class AudioEncoder(nn.Module):
+    def __init__(self, model_name="facebook/wav2vec2-base", trainable=False):
+        super().__init__()
+        self.processor = AutoProcessor.from_pretrained(model_name)
+        self.model = Wav2Vec2Model.from_pretrained(model_name)
+        if not trainable:
+            for p in self.model.parameters():
+                p.requires_grad = False
+        self.out_dim = self.model.config.hidden_size
+
+    def forward(self, input_values, attention_mask=None):  # audio: [B, T]
+        outputs = self.model(input_values=input_values, attention_mask=attention_mask)
+        # mean-pool last hidden states: [B, hidden]
+        hidden = outputs.last_hidden_state
+        return hidden.mean(dim=1)
+
+class MaskAwareGatedFusion(nn.Module):
+    def __init__(self, dims, fused_dim):
+        super().__init__()
+        self.proj = nn.ModuleList([nn.Linear(d, fused_dim) for d in dims])
+        self.gates = nn.ModuleList([nn.Linear(fused_dim, 1) for _ in dims])
+        self.out_norm = nn.LayerNorm(fused_dim)
+
+    def forward(self, feats, mask):  # feats: list of [B, d_i]; mask: [B, M] where 1=present, 0=missing
+        fused = 0
+        gate_sum = 0
+        for i, x in enumerate(feats):
+            h = torch.relu(self.proj[i](x))
+            g = torch.sigmoid(self.gates[i](h))  # [B,1]
+            if mask is not None:
+                g = g * mask[:, i:i+1]           # zero-out missing modality
+            fused = fused + g * h
+            gate_sum = gate_sum + g
+        # normalize by total active gates to keep scale stable
+        fused = fused / torch.clamp(gate_sum, min=1e-6)
+        return self.out_norm(fused)
+
+class MultimodalSarcasmModel(nn.Module):
+    def __init__(self, text_model_name, num_labels=2, dropout=0.15,
+                 use_image=False, vision_name=None, vision_trainable=False,
+                 use_audio=False, audio_name=None, audio_trainable=False,
+                 fusion_type="gated"):
+        super().__init__()
+        from transformers import AutoModel
+        self.text = AutoModel.from_pretrained(text_model_name)
+        self.text_hidden = self.text.config.hidden_size
+        self.dropout = nn.Dropout(dropout)
+        self.use_image = use_image
+        self.use_audio = use_audio
+
+        self.vision = None
+        self.audio = None
+        dims = [self.text_hidden]
+        if self.use_image:
+            self.vision = VisionEncoder(vision_name, vision_trainable)
+            dims.append(self.vision.out_dim)
+        if self.use_audio:
+            self.audio = AudioEncoder(audio_name, audio_trainable)
+            dims.append(self.audio.out_dim)
+
+        fused_dim = max(dims)
+        self.fusion = MaskAwareGatedFusion(dims, fused_dim)  # mask-aware
+        self.classifier = nn.Sequential(
+            nn.Linear(fused_dim, fused_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(fused_dim // 2, num_labels)
+        )
+        self.num_labels = num_labels
+
+    def forward(self, input_ids, attention_mask, image_pixels=None,
+                audio_values=None, audio_attn=None, modality_mask=None, labels=None):
+        # text encoding
+        t = self.text(input_ids=input_ids, attention_mask=attention_mask)
+        t_feat = t.pooler_output  # [B, hidden]
+
+        feats = [t_feat]
+        mask_cols = [torch.ones(t_feat.size(0), 1, device=t_feat.device)]
+        if self.use_image:
+            v_feat = self.vision(image_pixels) if image_pixels is not None else torch.zeros_like(t_feat)
+            feats.append(v_feat)
+            mask_cols.append((modality_mask[:, 1:2] if modality_mask is not None else torch.zeros_like(mask_cols)))
+        if self.use_audio:
+            a_feat = self.audio(audio_values, audio_attn) if audio_values is not None else torch.zeros_like(t_feat)
+            feats.append(a_feat)
+            idx = 2 if self.use_image else 1
+            mask_cols.append((modality_mask[:, idx:idx+1] if modality_mask is not None else torch.zeros_like(mask_cols)))
+
+        mask = torch.cat(mask_cols, dim=1) if modality_mask is not None else None
+        fused = self.fusion(feats, mask)
+        logits = self.classifier(self.dropout(fused))
+
+        outputs = {"logits": logits}
+        if labels is not None:
+            loss_fn = nn.CrossEntropyLoss()
+            outputs["loss"] = loss_fn(logits, labels)
+        return outputs
 
 class MultiModalFusionLayer(nn.Module):
     """Advanced fusion layer for multimodal features"""

@@ -9,8 +9,11 @@ import pandas as pd
 import numpy as np
 import glob
 import logging
+from PIL import Image
+import torchaudio
 from torch.utils.data import Dataset, DataLoader
 from transformers import (
+     AutoImageProcessor, AutoProcessor,
     RobertaForSequenceClassification, 
     RobertaTokenizerFast,
     get_linear_schedule_with_warmup
@@ -20,48 +23,103 @@ from sklearn.metrics import accuracy_score, f1_score
 from tqdm import tqdm
 import json
 from milestone1_feature_engineering import prepare_features_for_training
+from src.utils.milestone1_model_utils import MultimodalSarcasmModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class UltimateSarcasmDataset(Dataset):
-    """Enhanced dataset with linguistic features for ultimate performance"""
-    
-    def __init__(self, texts, labels, features, tokenizer, max_length=256):
-        self.texts = texts
-        self.labels = labels  
-        self.features = features
+    """Multimodal dataset with optional image/audio and modality mask"""
+    def __init__(self, df, feature_cols, tokenizer, max_length,
+                 use_image=False, vision_processor=None,
+                 use_audio=False, audio_processor=None, audio_sr=16000,
+                 modality_dropout_prob=0.0):
+        self.df = df.reset_index(drop=True)
+        self.features = df[feature_cols].reset_index(drop=True)
         self.tokenizer = tokenizer
         self.max_length = max_length
-    
-    def __len__(self):
-        return len(self.texts)
-    
+        self.use_image = use_image
+        self.vision_processor = vision_processor
+        self.use_audio = use_audio
+        self.audio_processor = audio_processor
+        self.audio_sr = audio_sr
+        self.modality_dropout_prob = modality_dropout_prob
+
+        self.has_image_col = 'image_path' in df.columns
+        self.has_audio_col = 'audio_path' in df.columns
+
+    def __len__(self): return len(self.df)
+
     def __getitem__(self, idx):
-        text = str(self.texts.iloc[idx])
-        label = int(self.labels.iloc[idx])
-        
-        # Tokenize text
-        encoding = self.tokenizer(
-            text,
-            max_length=self.max_length,
-            padding='max_length',
-            truncation=True,
-            return_tensors='pt'
+        row = self.df.iloc[idx]
+        text = str(row['text'])
+        label = int(row['label'])
+
+        # text
+        enc = self.tokenizer(
+            text, max_length=self.max_length, padding='max_length',
+            truncation=True, return_tensors='pt'
         )
-        
-        # Get linguistic features
-        feature_vector = torch.tensor(
-            self.features.iloc[idx].values, 
-            dtype=torch.float32
-        )
-        
+        input_ids = enc['input_ids'].squeeze(0)
+        attention_mask = enc['attention_mask'].squeeze(0)
+
+        # modality mask [text, image?, audio?]
+        mask_list = [5]  # text present
+
+        # Image branch
+        if self.use_image and self.has_image_col and pd.notna(row.get('image_path', None)):
+            try:
+                img = Image.open(row['image_path']).convert('RGB')
+                proc = self.vision_processor(images=img, return_tensors='pt')
+                image_pixels = proc['pixel_values'].squeeze(0)  # [3, H, W]
+                mask_list.append(1)
+            except Exception:
+                mask_list.append(0)
+        elif self.use_image:
+            mask_list.append(0)
+
+        # Audio branch
+        if self.use_audio and self.has_audio_col and pd.notna(row.get('audio_path', None)):
+            try:
+                wav, sr = torchaudio.load(row['audio_path'])  # [C, T]
+                wav = wav.mean(dim=0)  # mono
+                if sr != self.audio_sr:
+                    wav = torchaudio.functional.resample(wav, sr, self.audio_sr)
+                proc = self.audio_processor(wav.numpy(), sampling_rate=self.audio_sr, return_tensors='pt', padding='max_length', max_length=self.audio_sr * 5, truncation=True)
+                audio_values = proc['input_values'].squeeze(0)     # [T_fixed]
+                audio_attn = proc.get('attention_mask', None)
+                if audio_attn is not None:
+                    audio_attn = audio_attn.squeeze(0)
+                mask_list.append(1)
+            except Exception:
+                mask_list.append(0)
+        elif self.use_audio:
+            mask_list.append(0)
+
+        # Modality dropout (robust to missing at inference)
+        if self.modality_dropout_prob > 0:
+            import random
+            # never drop text, but maybe drop image/audio when present
+            for i in range(1, len(mask_list)):
+                if mask_list[i] == 1 and random.random() < self.modality_dropout_prob:
+                    mask_list[i] = 0
+                    if i == 1 and self.use_image:
+                        image_pixels = None
+                    if (i == 2 and self.use_audio) or (i == 1 and self.use_audio and not self.use_image):
+                        audio_values, audio_attn = None, None
+
+        modality_mask = torch.tensor(mask_list, dtype=torch.float32)
+
         return {
-            'input_ids': encoding['input_ids'].flatten(),
-            'attention_mask': encoding['attention_mask'].flatten(),
-            'features': feature_vector,
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'image_pixels': image_pixels if image_pixels is not None else torch.tensor(0),
+            'audio_values': audio_values if audio_values is not None else torch.tensor(0),
+            'audio_attn': audio_attn if audio_attn is not None else torch.tensor(0),
+            'modality_mask': modality_mask,
             'labels': torch.tensor(label, dtype=torch.long)
         }
+
 
 class UltimateTrainer:
     """Ultimate training class for maximum accuracy"""
@@ -101,6 +159,17 @@ class UltimateTrainer:
         
         # Initialize tokenizer
         tokenizer = RobertaTokenizerFast.from_pretrained(self.config['model']['name'])
+        use_image = self.config['modalities']['use_image']
+        use_audio = self.config['modalities']['use_audio']
+
+        vision_processor = None
+        audio_processor = None
+        if use_image:
+            vision_processor = AutoImageProcessor.from_pretrained(self.config['vision_encoder']['model_name'])
+        if use_audio:
+            audio_processor = AutoProcessor.from_pretrained(self.config['audio_encoder']['model_name'])
+            sample_rate = int(self.config['audio_encoder']['sample_rate'])
+
         
         # Get all training chunks
         chunks_dir = self.config['data']['chunks_dir']
@@ -114,11 +183,20 @@ class UltimateTrainer:
         best_f1 = 0
         
         # Initialize model (will be reused across chunks)
-        model = RobertaForSequenceClassification.from_pretrained(
-            self.config['model']['name'], 
-            num_labels=2
+        model = MultimodalSarcasmModel(
+            text_model_name=self.config['model']['name'],
+            num_labels=2,
+            dropout=self.config['model']['dropout'],
+            use_image=use_image,
+            vision_name=self.config['vision_encoder']['model_name'] if use_image else None,
+            vision_trainable=bool(self.config['vision_encoder']['trainable']) if use_image else False,
+            use_audio=use_audio,
+            audio_name=self.config['audio_encoder']['model_name'] if use_audio else None,
+            audio_trainable=bool(self.config['audio_encoder']['trainable']) if use_audio else False,
+            fusion_type=self.config['modalities']['fusion_type']
         )
         model.to(self.device)
+
         
         # Process each chunk
         for chunk_idx, chunk_file in enumerate(train_files):
@@ -127,7 +205,7 @@ class UltimateTrainer:
             
             # Load and prepare chunk data
             df = pd.read_csv(chunk_file)
-            bad = df['label'].isna() | (df['label'] < 0) | (df['label'] >= model.config.num_labels)
+            bad = df['label'].isna() | (df['label'] < 0) | (df['label'] >= model.num_labels)
             if bad.any():
                 n_bad = int(bad.sum())
                 logger.error(f"Found {n_bad} invalid labels in {os.path.basename(chunk_file)}. Dropping them.")
@@ -139,12 +217,12 @@ class UltimateTrainer:
             
             # Create dataset
             dataset = UltimateSarcasmDataset(
-                texts=df_enhanced['text'],
-                labels=df_enhanced['label'],
-                features=df_enhanced[feature_columns],
-                tokenizer=tokenizer,
-                max_length=self.config['model']['max_length']
+                df_enhanced, feature_columns, tokenizer, self.config['model']['max_length'],
+                use_image=use_image, vision_processor=vision_processor,
+                use_audio=use_audio, audio_processor=audio_processor, audio_sr=sample_rate if use_audio else 16000,
+                modality_dropout_prob=float(self.config['modalities']['modality_dropout_prob'])
             )
+
             
             # Create dataloader
             dataloader = DataLoader(
@@ -221,7 +299,10 @@ class UltimateTrainer:
                 optimizer.zero_grad()
                 
                 # Move to device
-                batch = {k: v.to(self.device) for k, v in batch.items()}
+                batch = {
+                    k: (v.to(self.device) if isinstance(v, torch.Tensor) else v)
+                    for k, v in batch.items()
+                }
 
                 # ── Label validation (ADD THIS BLOCK) ─────────────────────────
                 labels = batch['labels']
@@ -231,7 +312,7 @@ class UltimateTrainer:
                     labels = batch['labels']
 
                 # Ensure labels are finite and inside [0, num_labels)
-                num_labels = int(model.config.num_labels)  # e.g., 2
+                num_labels = int(model.num_labels)  # e.g., 2
                 lbl_min = labels.min().item()
                 lbl_max = labels.max().item()
                 if (not torch.isfinite(labels.float()).all()) or (lbl_min < 0) or (lbl_max >= num_labels):
@@ -242,11 +323,24 @@ class UltimateTrainer:
                     continue
                 
                 # Forward pass
+                # Assemble optional tensors (use 0 tensors as placeholders)
+                img = batch['image_pixels']
+                img = img.to(self.device) if isinstance(img, torch.Tensor) and img.ndim > 0 else None
+                aud = batch['audio_values']
+                aud = aud.to(self.device) if isinstance(aud, torch.Tensor) and aud.ndim > 0 else None
+                aud_attn = batch['audio_attn']
+                aud_attn = aud_attn.to(self.device) if isinstance(aud_attn, torch.Tensor) else None
+
                 outputs = model(
                     input_ids=batch['input_ids'],
                     attention_mask=batch['attention_mask'],
+                    image_pixels=img,
+                    audio_values=aud,
+                    audio_attn=aud_attn,
+                    modality_mask=batch['modality_mask'],
                     labels=batch['labels']
                 )
+
                 
                 loss = outputs.loss
                 if not torch.isfinite(loss):

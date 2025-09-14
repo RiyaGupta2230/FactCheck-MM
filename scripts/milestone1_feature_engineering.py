@@ -18,25 +18,35 @@ logger = logging.getLogger(__name__)
 
 def clean_text_advanced(text):
     """Advanced text cleaning and normalization"""
-    if not text or pd.isna(text):
+    # Robust cast and null guard
+    if text is None or (isinstance(text, float) and pd.isna(text)):
         return ""
-    
-    # Convert emojis to text descriptions
-    text = emoji.demojize(text, delimiters=(" [", "] "))
-    
+    try:
+        text = str(text)
+    except Exception:
+        return ""
+
+    # Convert emojis to text descriptions (guarded)
+    try:
+        text = emoji.demojize(text, delimiters=(" [", "] "))
+    except Exception:
+        # Fallback to original text if demojize fails
+        text = str(text)
+
     # Normalize URLs, mentions, hashtags
     text = re.sub(r'http[s]?://\S+', ' [URL] ', text)
     text = re.sub(r'@\w+', ' [MENTION] ', text)
     text = re.sub(r'#(\w+)', r' [HASHTAG] \1 ', text)
-    
+
     # Normalize repetitive punctuation
     text = re.sub(r'([!?]){3,}', r'\1\1', text)
     text = re.sub(r'\.{3,}', '...', text)
-    
+
     # Normalize whitespace
     text = re.sub(r'\s+', ' ', text).strip()
-    
+
     return text
+
 
 def extract_linguistic_features(df):
     """Extract comprehensive linguistic features for sarcasm detection"""
