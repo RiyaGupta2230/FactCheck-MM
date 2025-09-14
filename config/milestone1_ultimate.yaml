@@ -1,30 +1,36 @@
-# Your current config is PERFECT for M2:
 project:
   name: "milestone1_ultimate_m2"
   target_f1: 0.94
 
 model:
-  name: "roberta-base"         # ✅ Perfect size for M2 8GB
-  num_labels: 2                # ✅ Binary classification (optimal)
-  max_length: 256              # ✅ Good context window
-  dropout: 0.15                # ✅ Optimal regularization
+  name: "roberta-base"
+  num_labels: 2
+  max_length: 256
+  dropout: 0.15
 
 training:
-  device: "mps"                # ✅ Metal Performance Shaders
-  batch_size: 16               # ✅ PERFECT for M2 8GB unified memory
-  learning_rate: 2e-5          # ✅ Optimal for RoBERTa fine-tuning
-  epochs_per_chunk: 6          # ✅ Good balance for convergence
-  gradient_accumulation_steps: 4  # ✅ Effective batch = 64
-  warmup_steps: 1000           # ✅ Smooth learning rate warmup
-  weight_decay: 0.01           # ✅ Perfect regularization
-  mixed_precision: true        # ✅ Essential for M2 efficiency
+  device: "mps"
+  batch_size: 16
+  learning_rate: 2e-5
+  epochs_per_chunk: 6
+  gradient_accumulation_steps: 4
+  warmup_steps: 1000
+  weight_decay: 0.01
+  mixed_precision: true
 
 hardware:
-  dataloader_num_workers: 4    # ✅ Optimal for M2 CPU cores
-  pin_memory: true             # ✅ Memory optimization
-  gradient_checkpointing: true # ✅ Memory efficiency
+  dataloader_num_workers: 4
+  pin_memory: true
+  gradient_checkpointing: true
+
+# REQUIRED 'paths' SECTION (this was missing)
+paths:
+  model_dir: "models/milestone_01/final"
+  checkpoint_dir: "models/milestone_01/checkpoints"
+  ensemble_dir: "models/milestone_01/ensemble"  
+  output_dir: "outputs/milestone1"
 
 data:
-  chunks_dir: "data/processed/milestone1"  # ✅ Uses enhanced features
-  train_pattern: "enhanced_ultimate_train_chunk_*.csv"  # ✅ 65 features
-  num_classes: 2               # ✅ Binary classification
+  chunks_dir: "data/processed/milestone1"
+  train_pattern: "enhanced_ultimate_train_chunk_*.csv"
+  test_pattern: "enhanced_ultimate_test_chunk_*.csv"

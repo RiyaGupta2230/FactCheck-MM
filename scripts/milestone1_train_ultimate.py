@@ -151,10 +151,13 @@ class UltimateTrainer:
             )
             
             # Setup optimizer and scheduler for this chunk
+            lr = float(self.config['training']['learning_rate'])
+            wd = float(self.config['training']['weight_decay'])
+
             optimizer = AdamW(
                 model.parameters(),
-                lr=self.config['training']['learning_rate'],
-                weight_decay=self.config['training']['weight_decay']
+                lr=lr,
+                weight_decay=wd
             )
             
             total_steps = len(dataloader) * self.config['training']['epochs_per_chunk']
