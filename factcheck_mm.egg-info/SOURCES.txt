@@ -1,7 +1,0 @@
-README.md
-setup.py
-factcheck_mm.egg-info/PKG-INFO
-factcheck_mm.egg-info/SOURCES.txt
-factcheck_mm.egg-info/dependency_links.txt
-factcheck_mm.egg-info/requires.txt
-factcheck_mm.egg-info/top_level.txt
