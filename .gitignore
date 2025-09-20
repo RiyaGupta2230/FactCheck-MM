@@ -1,50 +1,223 @@
-# Large Data Files - Exclude from GitHub
-data/
-datasets/
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Model checkpoints and outputs
+checkpoints/
+outputs/
+runs/
+logs/
+*.pth
+*.pt
+*.bin
+*.ckpt
+*.safetensors
+
+# Dataset files (too large for git)
+data/*/
+!data/README.md
 *.csv
 *.json
-*.pkl
-*.h5
-*.npy
+*.jsonl
+*.tsv
+*.txt
 *.wav
+*.mp3
 *.mp4
+*.avi
+*.mov
 *.jpg
 *.jpeg
 *.png
+*.gif
+*.bmp
+*.tiff
 
-# Model Files - Too large for GitHub
-models/
-checkpoints/
-saved_models/
-*.pt
-*.pth
-*.model
-*.bin
+# Wandb logs
+wandb/
 
-# Logs and Temporary Files
-logs/
-temp/
-*.log
-*.tmp
-output/
+# TensorBoard logs
+tensorboard_logs/
+tb_logs/
 
-# Python Cache
+# MLflow
+mlruns/
+.mlflow/
+
+# Hydra
+.hydra/
+outputs/
+
+# Cache directories
+.cache/
 __pycache__/
-*.pyc
-*.pyo
 .pytest_cache/
 
-# Virtual Environment
-venv/
-env/
-.env
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-# IDE Files
-.vscode/
-.idea/
+# Temporary files
+*.tmp
+*.temp
+*~
 *.swp
 *.swo
 
-# OS Files
-.DS_Store
-Thumbs.db
+# Large model files
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Conda
+.conda/
