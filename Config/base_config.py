@@ -53,7 +53,7 @@ class BaseConfig:
     rich_logging: bool = True
     
     # Monitoring and tracking
-    use_wandb: bool = True~
+    use_wandb: bool = True
     use_tensorboard: bool = True
     use_mlflow: bool = False
     
