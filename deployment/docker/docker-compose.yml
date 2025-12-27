@@ -1,27 +1,137 @@
 version: '3.8'
 
+# ============================================
+# FactCheck-MM Docker Compose
+# Production Inference Setup
+# ============================================
+
 services:
-  factcheck-api:
+  # Main API service
+  factcheck-mm:
     build:
-      context: ../..
+      context: ../..  # Build from project root
       dockerfile: deployment/docker/Dockerfile
+      target: application  # Use 'gpu' for GPU variant
+    image: factcheck-mm:latest
+    container_name: factcheck-mm-api
+    hostname: factcheck-api
+    restart: unless-stopped
+    
+    # Port mapping
     ports:
       - "8000:8000"
+    
+    # Environment variables
     environment:
+      # Application settings
       - ENVIRONMENT=production
       - LOG_LEVEL=info
+      - PORT=8000
+      - WORKERS=1
+      
+      # Python settings
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      
+      # Cache directories (don't download models every time)
+      - TRANSFORMERS_CACHE=/app/cache/transformers
+      - HF_HOME=/app/cache/huggingface
+      - TORCH_HOME=/app/cache/torch
+      
+      # API settings
+      - MAX_REQUEST_SIZE=10485760
+      - TIMEOUT_KEEP_ALIVE=5
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8080
+    
+    # Volume mounts (ONLY for models and cache)
     volumes:
+      # Mount exported models directory
+      - ./../../deployment/models:/app/deployment/models:ro
+      
+      # Mount cache to avoid re-downloading on restart
+      - model-cache:/app/cache
+      
+      # Mount logs (optional, for debugging)
       - ./logs:/app/logs
-      - ./data:/app/data
-      - ./checkpoints:/app/checkpoints
-    restart: unless-stopped
+    
+    # Health check
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
+    
+    # Resource limits (adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    
+    # Network
+    networks:
+      - factcheck-network
 
+  # ============================================
+  # Optional: Redis for caching (recommended)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: factcheck-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - factcheck-network
+    profiles:
+      - caching
+
+# ============================================
+# Named volumes
+# ============================================
 volumes:
-  logs:
-  data:
-  checkpoints:
+  model-cache:
+    driver: local
+  redis-data:
+    driver: local
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  factcheck-network:
+    driver: bridge
+
+# ============================================
+# GPU Configuration (Optional)
+# Uncomment to enable GPU support
+# ============================================
+# To use GPU, run: docker-compose --profile gpu up
+# 
+# services:
+#   factcheck-mm-gpu:
+#     extends:
+#       service: factcheck-mm
+#     build:
+#       target: gpu
+#     image: factcheck-mm:gpu
+#     container_name: factcheck-mm-api-gpu
+#     runtime: nvidia
+#     environment:
+#       - CUDA_VISIBLE_DEVICES=0
+#     deploy:
+#       resources:
+#         reservations:
+#           devices:
+#             - driver: nvidia
+#               count: 1
+#               capabilities: [gpu]
+#     profiles:
+#       - gpu
