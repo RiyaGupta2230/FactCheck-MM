@@ -76,7 +76,11 @@ cd demo/
 # Install dependencies
 pip install -r requirements-demo.txt
 ```
-
+### Activate the virtual environment
+```bash
+.\venv\Scripts\Activate.ps1
+```
+ 
 ### Running the Demo
 
 Bash: run the Streamlit app (recommended)

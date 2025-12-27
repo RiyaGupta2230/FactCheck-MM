@@ -1,6 +1,19 @@
-# Virtual environments
+# Ignore virtual environments
 venv/
-demo/venv/
-*.pyc
+*/venv/
+
+# Ignore Python cache
 __pycache__/
+*.pyc
+
+# Ignore model checkpoints (LARGE files)
+*.pt
+*.h5
+*.ckpt
+
+# Ignore environment files
 .env
+
+# DO NOT ignore demo folder JSON or asset files
+!demo/demo_inputs.json
+!demo/assets/
