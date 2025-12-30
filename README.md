@@ -1,4 +1,3 @@
-```markdown
 # FactCheck-MM: Multimodal Fact-Checking with Sarcasm Detection and Paraphrasing
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue)](https://www.python.org/)
@@ -45,10 +44,6 @@ FactCheck-MM is an end-to-end multimodal fact-checking system that integrates sa
 
 FactCheck-MM/
 ├── data/
-│   ├── sarcasm\_detection/
-│   ├── paraphrasing/
-│   ├── fact\_verification/
-│   └── shared/
 ├── shared/
 │   ├── backbone/
 │   ├── utils/
@@ -167,7 +162,7 @@ python fact_verification/models/end_to_end_model.py --claim "COVID-19 vaccines a
 
 ### Sarcasm Detection Datasets
 
-* SARC, MMSD2, MUStARD, SarcNet, Sarcasm Headlines, Spanish Sarcasm, UR-FUNNY
+* SARC, MMSD2, MUStARD, SarcNet, Sarcasm Headlines
 
 ### Paraphrasing Datasets
 
@@ -289,4 +284,4 @@ MIT License - see [LICENSE](LICENSE) file.
 **For full documentation and tutorials, visit the [docs](docs/) directory or our online documentation site.**
 
 ```
-```
+

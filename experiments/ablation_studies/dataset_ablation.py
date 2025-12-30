@@ -33,7 +33,7 @@ class DatasetAblationConfig:
     
     # Available datasets for ablation
     available_datasets: List[str] = field(default_factory=lambda: [
-        'sarc', 'mmsd2', 'mustard', 'ur_funny', 'sarcnet', 'sarcasm_headlines'
+        'sarc', 'mmsd2', 'mustard', 'sarcnet', 'sarcasm_headlines'
     ])
     
     # Ablation strategy

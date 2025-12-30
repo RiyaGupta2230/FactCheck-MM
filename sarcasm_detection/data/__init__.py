@@ -1,7 +1,8 @@
 # sarcasm_detection/data/__init__.py
+
 """
 Sarcasm Detection Dataset Loaders
-Comprehensive dataset loaders for all 7 sarcasm datasets with multimodal support.
+Comprehensive dataset loaders for sarcasm datasets with multimodal support.
 """
 
 from .mustard_loader import MustardDataset
@@ -9,31 +10,26 @@ from .mmsd2_loader import MMSD2Dataset
 from .sarcnet_loader import SarcNetDataset
 from .sarc_loader import SARCDataset
 from .headlines_loader import HeadlinesDataset
-from .spanish_loader import SpanishSarcasmDataset
-from .funny_loader import URFunnyDataset
 from .unified_loader import UnifiedSarcasmDataset
 
 __all__ = [
     "MustardDataset",
-    "MMSD2Dataset", 
+    "MMSD2Dataset",
     "SarcNetDataset",
     "SARCDataset",
     "HeadlinesDataset",
-    "SpanishSarcasmDataset",
-    "URFunnyDataset",
     "UnifiedSarcasmDataset"
 ]
 
-# Dataset registry for easy access
+
 SARCASM_DATASETS = {
     'mustard': MustardDataset,
     'mmsd2': MMSD2Dataset,
     'sarcnet': SarcNetDataset,
     'sarc': SARCDataset,
-    'headlines': HeadlinesDataset,
-    'spanish': SpanishSarcasmDataset,
-    'ur_funny': URFunnyDataset
+    'sarcasm_headlines': HeadlinesDataset
 }
+
 
 def create_sarcasm_dataset(
     dataset_name: str,

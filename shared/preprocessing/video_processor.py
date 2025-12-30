@@ -28,7 +28,7 @@ class VideoProcessor:
         max_frames: int = 16,
         fps: Optional[int] = None,
         frame_size: Tuple[int, int] = (224, 224),
-        sampling_strategy: str = "uniform",  # uniform, random, keyframe
+        sampling_strategy: str = "uniform",
         temporal_augmentation: bool = True,
         spatial_augmentation: bool = True,
         image_processor: Optional[ImageProcessor] = None,
@@ -54,10 +54,8 @@ class VideoProcessor:
         self.temporal_augmentation = temporal_augmentation
         self.spatial_augmentation = spatial_augmentation
         self.cache_frames = cache_frames
-        
         self.logger = get_logger("VideoProcessor")
         
-        # Initialize image processor
         if image_processor is None:
             self.image_processor = ImageProcessor(
                 image_size=max(frame_size),
@@ -66,33 +64,30 @@ class VideoProcessor:
         else:
             self.image_processor = image_processor
         
-        # Setup temporal augmentations
         self._setup_temporal_augmentations()
         
-        # Frame cache
         self.frame_cache = {}
         
         self.logger.info("Video processor initialized successfully")
     
     def _setup_temporal_augmentations(self):
         """Setup temporal augmentation strategies."""
-        
         self.temporal_augs = {
             'temporal_shift': {
                 'enabled': True,
-                'max_shift_ratio': 0.1  # Maximum shift as ratio of video length
+                'max_shift_ratio': 0.1
             },
             'frame_dropout': {
                 'enabled': True,
-                'dropout_prob': 0.1  # Probability of dropping individual frames
+                'dropout_prob': 0.1
             },
             'temporal_reverse': {
                 'enabled': True,
-                'reverse_prob': 0.1  # Probability of reversing frame order
+                'reverse_prob': 0.1
             },
             'playback_speed': {
                 'enabled': True,
-                'speed_range': (0.8, 1.2)  # Speed variation range
+                'speed_range': (0.8, 1.2)
             }
         }
     
@@ -114,15 +109,12 @@ class VideoProcessor:
             Tuple of (frames_array, metadata)
         """
         try:
-            # Use imageio for better format support
             reader = imageio.get_reader(str(video_path))
             
-            # Get video metadata
             meta = reader.get_meta_data()
             original_fps = meta.get('fps', 30.0)
             total_frames = meta.get('nframes', len(reader))
             
-            # Calculate frame indices
             start_frame = int(start_time * original_fps)
             if duration is not None:
                 end_frame = start_frame + int(duration * original_fps)
@@ -131,7 +123,6 @@ class VideoProcessor:
             
             end_frame = min(end_frame, total_frames)
             
-            # Extract frames
             frames = []
             for i in range(start_frame, end_frame):
                 try:
@@ -143,7 +134,8 @@ class VideoProcessor:
             reader.close()
             
             if not frames:
-                raise ValueError("No frames extracted from video")
+                self.logger.warning(f"No frames extracted from video: {video_path}")
+                return np.zeros((1, 224, 224, 3), dtype=np.uint8), {'error': 'no_frames'}
             
             frames_array = np.array(frames)
             
@@ -163,10 +155,10 @@ class VideoProcessor:
             )
             
             return frames_array, metadata
-            
+        
         except Exception as e:
-            self.logger.error(f"Failed to load video {video_path}: {e}")
-            raise
+            self.logger.warning(f"Failed to load video {video_path}: {e}")
+            return np.zeros((1, 224, 224, 3), dtype=np.uint8), {'error': str(e)}
     
     def extract_frames_opencv(
         self,
@@ -188,17 +180,15 @@ class VideoProcessor:
         cap = cv2.VideoCapture(str(video_path))
         
         if not cap.isOpened():
-            raise ValueError(f"Cannot open video file: {video_path}")
+            self.logger.warning(f"Cannot open video file: {video_path}")
+            return np.zeros((1, 224, 224, 3), dtype=np.uint8), {'error': 'cannot_open'}
         
-        # Get video properties
         original_fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        # Set start position
         start_frame = int(start_time * original_fps)
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         
-        # Calculate end frame
         if duration is not None:
             end_frame = start_frame + int(duration * original_fps)
         else:
@@ -212,7 +202,6 @@ class VideoProcessor:
             if not ret:
                 break
             
-            # Convert BGR to RGB
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frames.append(frame)
             frame_count += 1
@@ -220,7 +209,8 @@ class VideoProcessor:
         cap.release()
         
         if not frames:
-            raise ValueError("No frames extracted from video")
+            self.logger.warning(f"No frames extracted from video: {video_path}")
+            return np.zeros((1, 224, 224, 3), dtype=np.uint8), {'error': 'no_frames'}
         
         frames_array = np.array(frames)
         
@@ -258,34 +248,22 @@ class VideoProcessor:
         
         num_frames = len(frames)
         
-        # If we already have fewer frames than max, return as is
         if num_frames <= self.max_frames:
             return frames
         
         if strategy == "uniform":
-            # Uniform sampling
             indices = np.linspace(0, num_frames - 1, self.max_frames, dtype=int)
-            
         elif strategy == "random":
-            # Random sampling
             indices = np.sort(np.random.choice(num_frames, self.max_frames, replace=False))
-            
         elif strategy == "keyframe":
-            # Simple keyframe detection based on frame differences
             indices = self._detect_keyframes(frames)
-            
         elif strategy == "center":
-            # Sample from center of video
             start_idx = (num_frames - self.max_frames) // 2
             indices = np.arange(start_idx, start_idx + self.max_frames)
-            
         elif strategy == "fps_based" and target_fps is not None:
-            # Sample based on target FPS
             frame_interval = max(1, num_frames // (self.max_frames * target_fps))
             indices = np.arange(0, num_frames, frame_interval)[:self.max_frames]
-            
         else:
-            # Default to uniform
             indices = np.linspace(0, num_frames - 1, self.max_frames, dtype=int)
         
         return frames[indices]
@@ -300,7 +278,6 @@ class VideoProcessor:
         Returns:
             Array of keyframe indices
         """
-        # Calculate frame differences
         gray_frames = []
         for frame in frames:
             if len(frame.shape) == 3:
@@ -311,7 +288,6 @@ class VideoProcessor:
         
         gray_frames = np.array(gray_frames)
         
-        # Calculate differences between consecutive frames
         diffs = []
         for i in range(1, len(gray_frames)):
             diff = np.mean(np.abs(gray_frames[i].astype(float) - gray_frames[i-1].astype(float)))
@@ -319,15 +295,12 @@ class VideoProcessor:
         
         diffs = np.array(diffs)
         
-        # Find frames with highest differences (potential keyframes)
         if len(diffs) < self.max_frames:
             return np.arange(len(frames))
         
-        # Get indices of frames with highest differences
         keyframe_indices = np.argsort(diffs)[-self.max_frames:]
         keyframe_indices = np.sort(keyframe_indices)
         
-        # Add first frame if not included
         if 0 not in keyframe_indices:
             keyframe_indices = np.concatenate([[0], keyframe_indices[:-1]])
         
@@ -353,55 +326,42 @@ class VideoProcessor:
         
         augmented_frames = frames.copy()
         
-        # Temporal shift
-        if (self.temporal_augs['temporal_shift']['enabled'] and 
+        if (self.temporal_augs['temporal_shift']['enabled'] and
             np.random.random() < 0.3):
-            
             max_shift = int(len(frames) * self.temporal_augs['temporal_shift']['max_shift_ratio'])
             if max_shift > 0:
                 shift = np.random.randint(-max_shift, max_shift + 1)
                 if shift != 0:
                     if shift > 0:
-                        # Shift forward, pad at beginning
                         augmented_frames = np.concatenate([
                             np.repeat(frames[:1], shift, axis=0),
                             frames[:-shift]
                         ])
                     else:
-                        # Shift backward, pad at end
                         augmented_frames = np.concatenate([
                             frames[-shift:],
                             np.repeat(frames[-1:], -shift, axis=0)
                         ])
         
-        # Frame dropout
-        if (self.temporal_augs['frame_dropout']['enabled'] and 
+        if (self.temporal_augs['frame_dropout']['enabled'] and
             np.random.random() < 0.2):
-            
             dropout_prob = self.temporal_augs['frame_dropout']['dropout_prob']
             keep_mask = np.random.random(len(augmented_frames)) > dropout_prob
             
-            # Ensure at least half the frames are kept
             if np.sum(keep_mask) < len(augmented_frames) // 2:
                 keep_mask = np.random.random(len(augmented_frames)) > dropout_prob / 2
             
-            # If frames are dropped, interpolate to maintain length
             if np.sum(keep_mask) < len(augmented_frames):
                 kept_indices = np.where(keep_mask)[0]
-                all_indices = np.arange(len(augmented_frames))
                 
-                # Simple interpolation: repeat nearest frames
                 for i, keep in enumerate(keep_mask):
                     if not keep:
-                        # Find nearest kept frame
                         distances = np.abs(kept_indices - i)
                         nearest_idx = kept_indices[np.argmin(distances)]
                         augmented_frames[i] = augmented_frames[nearest_idx]
         
-        # Temporal reverse
-        if (self.temporal_augs['temporal_reverse']['enabled'] and 
+        if (self.temporal_augs['temporal_reverse']['enabled'] and
             np.random.random() < self.temporal_augs['temporal_reverse']['reverse_prob']):
-            
             augmented_frames = augmented_frames[::-1]
         
         return augmented_frames
@@ -426,7 +386,6 @@ class VideoProcessor:
         
         resized_frames = []
         for frame in frames:
-            # Convert to PIL Image for consistent resizing
             pil_image = Image.fromarray(frame)
             resized_image = self.image_processor.resize_image(pil_image, size)
             resized_frames.append(np.array(resized_image))
@@ -454,28 +413,26 @@ class VideoProcessor:
         Returns:
             Dictionary with processed video data
         """
-        # Check cache first
         cache_key = f"{video_path}_{start_time}_{duration}_{training}"
         if self.cache_frames and cache_key in self.frame_cache:
             return self.frame_cache[cache_key]
         
-        # Load video
         try:
             frames, metadata = self.load_video(video_path, start_time, duration)
         except Exception:
-            # Fallback to OpenCV
-            frames, metadata = self.extract_frames_opencv(video_path, start_time, duration)
+            try:
+                frames, metadata = self.extract_frames_opencv(video_path, start_time, duration)
+            except Exception as e:
+                self.logger.warning(f"All video loading methods failed for {video_path}: {e}")
+                frames = np.zeros((self.max_frames, 224, 224, 3), dtype=np.uint8)
+                metadata = {'error': 'all_methods_failed'}
         
-        # Sample frames
         sampled_frames = self.sample_frames(frames, target_fps=self.fps)
         
-        # Apply temporal augmentations
         augmented_frames = self.apply_temporal_augmentations(sampled_frames, training)
         
-        # Resize frames
         processed_frames = self.resize_frames(augmented_frames)
         
-        # Apply spatial augmentations via image processor
         if training and self.spatial_augmentation:
             final_frames = []
             for frame in processed_frames:
@@ -483,9 +440,8 @@ class VideoProcessor:
                 final_frames.append(processed_frame)
             processed_frames = np.array(final_frames)
         
-        # Prepare result
         result = {
-            'frames': processed_frames,  # [num_frames, height, width, channels]
+            'frames': processed_frames,
             'num_frames': len(processed_frames),
             'frame_shape': processed_frames.shape[1:],
         }
@@ -493,7 +449,6 @@ class VideoProcessor:
         if return_metadata:
             result['metadata'] = metadata
         
-        # Cache if enabled
         if self.cache_frames:
             self.frame_cache[cache_key] = result
         
@@ -517,12 +472,9 @@ class VideoProcessor:
         processed = self.process_video(video_path, training=training)
         frames = processed['frames']
         
-        # Convert to tensor and rearrange dimensions
-        # From [num_frames, height, width, channels] to [num_frames, channels, height, width]
         video_tensor = torch.from_numpy(frames).float()
         video_tensor = video_tensor.permute(0, 3, 1, 2)
         
-        # Normalize to [0, 1] if needed
         if video_tensor.max() > 1.0:
             video_tensor = video_tensor / 255.0
         
@@ -549,7 +501,6 @@ class VideoProcessor:
             video_tensor = self.process_for_model(video_path, training)
             batch_videos.append(video_tensor)
         
-        # Stack into batch
         batch_tensor = torch.stack(batch_videos, dim=0)
         
         return batch_tensor
@@ -566,11 +517,9 @@ class VideoProcessor:
         """
         features = {}
         
-        # Temporal features
         features['num_frames'] = float(len(frames))
         features['avg_frame_size'] = float(np.mean([frame.size for frame in frames]))
         
-        # Motion features (optical flow magnitude)
         if len(frames) > 1:
             motion_magnitudes = []
             for i in range(1, len(frames)):
@@ -595,7 +544,6 @@ class VideoProcessor:
             features['avg_motion'] = 0.0
             features['motion_variance'] = 0.0
         
-        # Scene change detection (frame difference)
         if len(frames) > 1:
             scene_changes = []
             for i in range(1, len(frames)):

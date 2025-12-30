@@ -1,17 +1,15 @@
 """
 Dataset Configuration for FactCheck-MM
-Paths and settings for all 12 datasets used in the pipeline.
+Paths and settings for all 10 datasets used in the pipeline.
 """
 
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional
 
-
 @dataclass
 class DatasetConfig:
     """Base configuration for a single dataset."""
-    
     name: str
     path: Path
     task: str
@@ -22,7 +20,6 @@ class DatasetConfig:
     format: str = "json"  # json, csv, jsonl, tsv
     encoding: str = "utf-8"
     preprocessing_required: bool = True
-
 
 @dataclass
 class DatasetConfigs:
@@ -35,62 +32,47 @@ class DatasetConfigs:
     sarcasm_datasets: Dict[str, DatasetConfig] = field(default_factory=lambda: {
         "mustard": DatasetConfig(
             name="mustard",
-            path=Path("data/mustard_repo"),
+            path=Path("mustard_repo"),
             task="sarcasm_detection",
-            modalities=["text", "audio", "video"],
+            modalities=["text", "audio", "video", "context"],
             train_file="data/sarcasm_data.json",
             format="json"
         ),
         "mmsd2": DatasetConfig(
-            name="mmsd2", 
-            path=Path("data/mmsd2"),
+            name="mmsd2",
+            path=Path("mmsd2"),
             task="sarcasm_detection",
             modalities=["text", "image"],
-            train_file="train_data.csv",
-            val_file="val_data.csv", 
-            test_file="test_data.csv",
-            format="csv"
+            train_file="text_json_final/train.json",
+            val_file="text_json_final/valid.json",
+            test_file="text_json_final/test.json",
+            format="json"
         ),
         "sarcnet": DatasetConfig(
             name="sarcnet",
-            path=Path("data/sarcnet"),
+            path=Path("sarcnet/SarcNet Image-Text"),
             task="sarcasm_detection",
             modalities=["text", "image"],
-            train_file="train.json",
-            test_file="test.json",
-            format="json"
+            train_file="SarcNetTrain.csv",
+            val_file="SarcNetVal.csv",
+            test_file="SarcNetTest.csv",
+            format="csv"
         ),
         "sarc": DatasetConfig(
             name="sarc",
-            path=Path("data/sarc"),
-            task="sarcasm_detection", 
-            modalities=["text"],
+            path=Path("sarc"),
+            task="sarcasm_detection",
+            modalities=["text", "context"],
             train_file="train-balanced-sarcasm.csv",
             format="csv"
         ),
         "sarcasm_headlines": DatasetConfig(
             name="sarcasm_headlines",
-            path=Path("data/Sarcasm Headlines"),
+            path=Path("Sarcasm Headlines"),
             task="sarcasm_detection",
             modalities=["text"],
             train_file="Sarcasm_Headlines_Dataset.json",
             format="json"
-        ),
-        "spanish_sarcasm": DatasetConfig(
-            name="spanish_sarcasm",
-            path=Path("data/spanish_sarcasm"),
-            task="sarcasm_detection",
-            modalities=["text"],
-            train_file="spanish_sarcasm_ULTIMATE_OPTIMIZED.csv",
-            format="csv"
-        ),
-        "ur_funny": DatasetConfig(
-            name="ur_funny", 
-            path=Path("data/ur_funny"),
-            task="sarcasm_detection",
-            modalities=["text", "audio", "video"],
-            train_file="ur_funny.csv",
-            format="csv"
         )
     })
     
@@ -98,7 +80,7 @@ class DatasetConfigs:
     paraphrasing_datasets: Dict[str, DatasetConfig] = field(default_factory=lambda: {
         "paranmt": DatasetConfig(
             name="paranmt",
-            path=Path("data/paranmt"),
+            path=Path("paranmt"),
             task="paraphrasing",
             modalities=["text"],
             train_file="para-nmt-5m-processed.txt",
@@ -106,7 +88,7 @@ class DatasetConfigs:
         ),
         "mrpc": DatasetConfig(
             name="mrpc",
-            path=Path("data/MRPC"),
+            path=Path("MRPC"),
             task="paraphrasing",
             modalities=["text"],
             train_file="train.tsv",
@@ -116,7 +98,7 @@ class DatasetConfigs:
         ),
         "quora": DatasetConfig(
             name="quora",
-            path=Path("data/quora"),
+            path=Path("quora"),
             task="paraphrasing",
             modalities=["text"],
             train_file="train.csv",
@@ -129,7 +111,7 @@ class DatasetConfigs:
     fact_verification_datasets: Dict[str, DatasetConfig] = field(default_factory=lambda: {
         "fever": DatasetConfig(
             name="fever",
-            path=Path("data/FEVER"),
+            path=Path("FEVER"),
             task="fact_verification",
             modalities=["text"],
             train_file="fever_train.jsonl",
@@ -137,10 +119,10 @@ class DatasetConfigs:
             format="jsonl"
         ),
         "liar": DatasetConfig(
-            name="liar", 
-            path=Path("data/LIAR"),
+            name="liar",
+            path=Path("LIAR"),
             task="fact_verification",
-            modalities=["text"],
+            modalities=["text", "metadata"],
             train_file="train_formatted.csv",
             val_file="valid.tsv",
             test_file="test.tsv",
@@ -177,7 +159,6 @@ class DatasetConfigs:
     def _validate_paths(self):
         """Validate that dataset paths exist."""
         missing_paths = []
-        
         all_datasets = {**self.sarcasm_datasets, **self.paraphrasing_datasets, **self.fact_verification_datasets}
         
         for dataset_name, config in all_datasets.items():
@@ -186,7 +167,7 @@ class DatasetConfigs:
                 missing_paths.append(f"{dataset_name}: {full_path}")
         
         if missing_paths:
-            print("⚠️  Warning: Missing dataset paths detected:")
+            print("⚠️ Warning: Missing dataset paths detected:")
             for path in missing_paths:
                 print(f"   - {path}")
             print("Run the dataset download script to fetch missing datasets.")
@@ -201,7 +182,7 @@ class DatasetConfigs:
         """Get all datasets for a specific task."""
         task_datasets = {
             "sarcasm_detection": self.sarcasm_datasets,
-            "paraphrasing": self.paraphrasing_datasets, 
+            "paraphrasing": self.paraphrasing_datasets,
             "fact_verification": self.fact_verification_datasets
         }
         
@@ -213,7 +194,6 @@ class DatasetConfigs:
     def get_multimodal_datasets(self) -> Dict[str, DatasetConfig]:
         """Get all datasets that contain multiple modalities."""
         multimodal_datasets = {}
-        
         all_datasets = {**self.sarcasm_datasets, **self.paraphrasing_datasets, **self.fact_verification_datasets}
         
         for name, config in all_datasets.items():
@@ -242,7 +222,6 @@ class DatasetConfigs:
         for config in all_datasets.values():
             if len(config.modalities) > 1:
                 info["multimodal_count"] += 1
-            
             for modality in config.modalities:
                 if modality in info["by_modality"]:
                     info["by_modality"][modality] += 1

@@ -45,9 +45,6 @@ sarcasm_detection/
 | **SarcNet** | Text + Image | Variable | Separate modality-specific labels |
 | **SARC** | Text | 1.3M | Large-scale Reddit sarcasm corpus |
 | **Sarcasm Headlines** | Text | 28.6K | Professional news headlines |
-| **Spanish Sarcasm** | Text | 1K+ | Multilingual sarcasm detection |
-| **UR-FUNNY** | Text + Audio | 16K | TED Talk humor and sarcasm |
-
 ## Model Types
 
 ### Text-Only Models
@@ -88,7 +85,7 @@ from sarcasm_detection.data import UnifiedSarcasmLoader
 # Initialize loader with multiple datasets
 loader = UnifiedSarcasmLoader(
     data_dir="data/",
-    datasets=['mustard', 'mmsd2', 'sarc', 'headlines'],
+    datasets=['mustard', 'mmsd2', 'sarc'],
     split_ratio={'train': 0.8, 'val': 0.1, 'test': 0.1}
 )
 

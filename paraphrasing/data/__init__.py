@@ -1,21 +1,22 @@
-"""
-Paraphrasing Data Module
+# paraphrasing_detection/data/__init__.py
 
-This module provides unified data loading capabilities for paraphrasing tasks
-in the FactCheck-MM project, supporting ParaNMT-5M, MRPC, and Quora datasets.
+"""
+Paraphrasing Detection Data Loaders
+Research-grade implementations with strict PDF compliance.
 """
 
-from .paranmt_loader import ParaNMTLoader
-from .mrpc_loader import MRPCDataset
-from .quora_loader import QuoraDataset
-from .unified_loader import UnifiedParaphraseDataset
+from .paranmt_loader import ParaNMTDataset, ParaNMTConfig
+from .mrpc_loader import MRPCDataset, MRPCConfig
+from .quora_loader import QuoraDataset, QuoraConfig
+from .unified_loader import UnifiedParaphraseDataset, UnifiedParaphraseConfig
 
 __all__ = [
-    "ParaNMTLoader",
-    "MRPCDataset", 
-    "QuoraDataset",
-    "UnifiedParaphraseDataset"
+    'ParaNMTDataset',
+    'ParaNMTConfig',
+    'MRPCDataset',
+    'MRPCConfig',
+    'QuoraDataset',
+    'QuoraConfig',
+    'UnifiedParaphraseDataset',
+    'UnifiedParaphraseConfig'
 ]
-
-__version__ = "1.0.0"
-__author__ = "FactCheck-MM Team"

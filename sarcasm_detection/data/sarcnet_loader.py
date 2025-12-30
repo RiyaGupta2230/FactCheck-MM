@@ -1,10 +1,11 @@
 # sarcasm_detection/data/sarcnet_loader.py
+
 """
 SarcNet Dataset Loader for Sarcasm Detection
 Multimodal dataset with separate modality annotations for text and image.
+Strictly follows PDF specification for multi-label structure.
 """
 
-import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -19,9 +20,26 @@ from shared.utils import get_logger
 class SarcNetDataset(Dataset):
     """
     SarcNet Dataset Loader for multimodal sarcasm detection.
+    - ~3,335 image-text pairs
+    - Separate labels: Textlabel, Imagelabel, Multilabel
+    - Primary target: Multilabel (as per PDF)
     
-    Features separate annotations for text and image modalities,
-    allowing for fine-grained modality-specific sarcasm analysis.
+    Path structure (as per PDF):
+    sarcnet/
+    └── SarcNet Image-Text/
+        ├── Image/
+        │   ├── 1.jpg
+        │   └── ...
+        ├── SarcNetTrain.csv
+        ├── SarcNetVal.csv
+        └── SarcNetTest.csv
+    
+    CSV Schema:
+    - Text
+    - Imagepath
+    - Textlabel (0/1)
+    - Imagelabel (0/1)
+    - Multilabel (0/1) <- Primary target
     """
     
     def __init__(
@@ -31,138 +49,85 @@ class SarcNetDataset(Dataset):
         max_samples: Optional[int] = None,
         processors: Optional[Dict[str, Any]] = None,
         cache_data: bool = True,
-        use_separate_labels: bool = True,
         random_seed: int = 42
     ):
-        """
-        Initialize SarcNet dataset.
-        
-        Args:
-            data_dir: Path to SarcNet dataset directory
-            split: Dataset split ('train', 'val', 'test')
-            max_samples: Maximum number of samples to load
-            processors: Dictionary of processors for each modality
-            cache_data: Whether to cache processed data
-            use_separate_labels: Whether to use separate modality labels
-            random_seed: Random seed for reproducibility
-        """
         super().__init__()
-        
         self.data_dir = Path(data_dir)
         self.split = split
         self.max_samples = max_samples
         self.cache_data = cache_data
-        self.use_separate_labels = use_separate_labels
         self.random_seed = random_seed
-        
         self.logger = get_logger("SarcNetDataset")
         
-        # Set random seed
         np.random.seed(random_seed)
         torch.manual_seed(random_seed)
         
-        # Initialize processors
         self.processors = processors or {}
         if 'text' not in self.processors:
             self.processors['text'] = TextProcessor(max_length=256, add_sarcasm_markers=True)
         if 'image' not in self.processors:
             self.processors['image'] = ImageProcessor(image_size=224, augment_training=True)
         
-        # Data storage
         self.data = []
         self.cache = {}
         
-        # Load data
         self._load_data()
         
         self.logger.info(f"Loaded SarcNet dataset: {len(self.data)} samples, split: {split}")
     
     def _load_data(self):
-        """Load SarcNet dataset from JSON files."""
+        """Load SarcNet dataset from CSV files."""
+        # Map split names to file names (as per PDF)
+        split_files = {
+            "train": "SarcNetTrain.csv",
+            "val": "SarcNetVal.csv",
+            "test": "SarcNetTest.csv"
+        }
         
-        # Determine file based on split
-        if self.split == "train":
-            data_file = self.data_dir / "train.json"
-        elif self.split == "val":
-            data_file = self.data_dir / "val.json"  
-        elif self.split == "test":
-            data_file = self.data_dir / "test.json"
-        else:
-            data_file = self.data_dir / "train.json"  # Default fallback
+        data_file = self.data_dir / split_files.get(self.split, "SarcNetTrain.csv")
         
         if not data_file.exists():
             raise FileNotFoundError(f"SarcNet data file not found: {data_file}")
         
         try:
-            # Load JSON data
-            with open(data_file, 'r', encoding='utf-8') as f:
-                raw_data = json.load(f)
+            df = pd.read_csv(data_file)
             
-            # Process each item
-            for idx, item in enumerate(raw_data):
+            for idx, row in df.iterrows():
+                text = str(row.get('Text', ''))
+                image_path = str(row.get('Imagepath', ''))
+                
                 sample = {
-                    'id': item.get('id', f"sarcnet_{idx}"),
-                    'text': str(item.get('text', '')),
-                    'image_path': self._get_image_path(item.get('image_path', item.get('image_id', ''))),
-                    'dataset': 'sarcnet'
+                    'id': f"sarcnet_{idx}",
+                    'text': text,
+                    'label': int(row.get('Multilabel', 0)),  # Primary target as per PDF
+                    'text_label': int(row.get('Textlabel', 0)),
+                    'image_label': int(row.get('Imagelabel', 0)),
+                    'dataset': 'sarcnet',
+                    'split': self.split
                 }
                 
-                # Handle labels
-                if self.use_separate_labels:
-                    # Separate modality labels
-                    sample['text_sarcastic'] = int(item.get('text_sarcastic', 0))
-                    sample['image_sarcastic'] = int(item.get('image_sarcastic', 0))
-                    # Overall label (OR of modality labels)
-                    sample['label'] = int(max(sample['text_sarcastic'], sample['image_sarcastic']))
-                else:
-                    # Single overall label
-                    sample['label'] = int(item.get('sarcastic', item.get('label', 0)))
-                    sample['text_sarcastic'] = sample['label']
-                    sample['image_sarcastic'] = sample['label']
+                # Resolve image path relative to SarcNet Image-Text directory
+                if image_path:
+                    full_image_path = self.data_dir / image_path
+                    if full_image_path.exists():
+                        sample['image_path'] = str(full_image_path)
+                    else:
+                        self.logger.debug(f"Image not found: {full_image_path}")
                 
-                # Add additional metadata
-                if 'context' in item:
-                    sample['context'] = item['context']
-                if 'source' in item:
-                    sample['source'] = item['source']
-                
-                # Only add samples with valid text
-                if sample['text'] and sample['text'].strip():
+                if text and text.strip():
                     self.data.append(sample)
             
-            # Apply max samples limit with stratified sampling
             if self.max_samples and len(self.data) > self.max_samples:
                 self.data = self._stratified_sample(self.data, self.max_samples)
             
             self.logger.info(f"Loaded {len(self.data)} samples for split: {self.split}")
-            
+        
         except Exception as e:
             self.logger.error(f"Failed to load SarcNet dataset: {e}")
             raise
     
-    def _get_image_path(self, image_identifier: str) -> Optional[Path]:
-        """Get image file path for sample."""
-        if not image_identifier:
-            return None
-        
-        image_dir = self.data_dir / "images"
-        
-        # Try different possible extensions
-        for ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif']:
-            image_path = image_dir / f"{image_identifier}{ext}"
-            if image_path.exists():
-                return image_path
-        
-        # Try direct path if provided
-        direct_path = self.data_dir / image_identifier
-        if direct_path.exists():
-            return direct_path
-        
-        return None
-    
     def _stratified_sample(self, data: List[Dict[str, Any]], n_samples: int) -> List[Dict[str, Any]]:
-        """Perform stratified sampling to maintain class balance."""
-        
+        """Stratified sampling to maintain class balance."""
         sarcastic = [s for s in data if s['label'] == 1]
         non_sarcastic = [s for s in data if s['label'] == 0]
         
@@ -178,13 +143,9 @@ class SarcNetDataset(Dataset):
         return sampled
     
     def __len__(self) -> int:
-        """Get dataset length."""
         return len(self.data)
     
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        """Get dataset item."""
-        
-        # Check cache
         if self.cache_data and idx in self.cache:
             return self.cache[idx]
         
@@ -194,11 +155,9 @@ class SarcNetDataset(Dataset):
         text_tokens = None
         if sample['text']:
             processed_text = self.processors['text'].preprocess_text(
-                sample['text'], 
+                sample['text'],
                 task="sarcasm_detection"
             )
-            
-            # Tokenize
             tokenized = self.processors['text'].tokenize(
                 processed_text,
                 padding=False,
@@ -209,48 +168,44 @@ class SarcNetDataset(Dataset):
         
         # Process image
         image_tensor = None
-        if sample['image_path'] and sample['image_path'].exists():
-            try:
-                image_data = self.processors['image'].process_for_vit(
-                    sample['image_path'],
-                    training=(self.split == "train")
-                )
-                image_tensor = image_data['pixel_values'].squeeze(0)
-            except Exception as e:
-                self.logger.debug(f"Failed to process image for {sample['id']}: {e}")
+        if 'image_path' in sample:
+            image_path = Path(sample['image_path'])
+            if image_path.exists():
+                try:
+                    image_data = self.processors['image'].process_for_vit(
+                        str(image_path),
+                        training=(self.split == "train")
+                    )
+                    image_tensor = image_data['pixel_values'].squeeze(0)
+                except Exception as e:
+                    self.logger.debug(f"Failed to process image for {sample['id']}: {e}")
         
-        # Create final sample
         final_sample = {
             'id': sample['id'],
             'text': text_tokens,
-            'audio': None,  # SarcNet doesn't have audio
-            'video': None,  # SarcNet doesn't have video
+            'audio': None,
+            'video': None,
             'image': image_tensor,
             'label': torch.tensor(sample['label'], dtype=torch.long),
             'metadata': {
                 'dataset': sample['dataset'],
-                'text_sarcastic': sample['text_sarcastic'],
-                'image_sarcastic': sample['image_sarcastic'],
+                'text_label': sample['text_label'],
+                'image_label': sample['image_label'],
                 'has_image': image_tensor is not None,
-                'context': sample.get('context', ''),
-                'source': sample.get('source', ''),
                 'original_text': sample['text']
             }
         }
         
-        # Cache if enabled
         if self.cache_data:
             self.cache[idx] = final_sample
         
         return final_sample
     
     def get_statistics(self) -> Dict[str, Any]:
-        """Get dataset statistics."""
-        
         labels = [sample['label'] for sample in self.data]
-        text_labels = [sample['text_sarcastic'] for sample in self.data]
-        image_labels = [sample['image_sarcastic'] for sample in self.data]
-        has_image = [bool(sample['image_path'] and sample['image_path'].exists()) for sample in self.data]
+        text_labels = [sample['text_label'] for sample in self.data]
+        image_labels = [sample['image_label'] for sample in self.data]
+        has_image = [bool('image_path' in sample) for sample in self.data]
         
         return {
             'total_samples': len(self.data),
@@ -262,6 +217,5 @@ class SarcNetDataset(Dataset):
             'samples_with_images': sum(has_image),
             'image_coverage': sum(has_image) / len(has_image) if has_image else 0,
             'avg_text_length': np.mean([len(s['text'].split()) for s in self.data if s['text']]),
-            'modalities': ['text', 'image'],
-            'separate_modality_labels': self.use_separate_labels
+            'modalities': ['text', 'image']
         }

@@ -1,3 +1,5 @@
+# shared/datasets/multimodal_dataset.py
+
 """
 Multimodal Dataset Implementations for FactCheck-MM
 Unified datasets for text, audio, image, and video processing.
@@ -15,7 +17,6 @@ from .base_dataset import BaseDataset, DatasetConfig
 from ..utils import get_logger
 from ..preprocessing import TextProcessor, AudioProcessor, ImageProcessor, VideoProcessor
 
-
 class MultimodalDataset(BaseDataset):
     """
     Unified multimodal dataset that handles text, audio, image, and video data.
@@ -27,6 +28,7 @@ class MultimodalDataset(BaseDataset):
         split: str = "train",
         task_name: str = "classification",
         processors: Optional[Dict[str, Any]] = None,
+        max_dataset_contribution: float = 0.5,
         **kwargs
     ):
         """
@@ -37,30 +39,74 @@ class MultimodalDataset(BaseDataset):
             split: Dataset split
             task_name: Task name for preprocessing
             processors: Modality processors
+            max_dataset_contribution: Max proportion any single dataset can contribute
             **kwargs: Additional arguments
         """
         self.task_name = task_name
         self.configs = configs
         self.datasets = []
-        
+        self.dataset_lengths = []
+        self.max_dataset_contribution = max_dataset_contribution
         self.logger = get_logger(f"MultimodalDataset_{task_name}")
         
-        # Initialize individual datasets
         for config in configs:
             try:
                 dataset = BaseDataset(config, split, processors, **kwargs)
                 self.datasets.append(dataset)
+                self.dataset_lengths.append(len(dataset))
                 self.logger.info(f"Added dataset: {config.name} ({len(dataset)} samples)")
             except Exception as e:
                 self.logger.error(f"Failed to load dataset {config.name}: {e}")
+                raise
         
-        # Combine all datasets
-        if self.datasets:
-            self.combined_dataset = ConcatDataset(self.datasets)
-        else:
+        if not self.datasets:
             raise ValueError("No datasets loaded successfully")
         
+        self._apply_dataset_balancing()
+        self.combined_dataset = ConcatDataset(self.datasets)
+        self._log_contribution_ratios()
         self.logger.info(f"Initialized multimodal dataset: {len(self.combined_dataset)} total samples")
+    
+    def _apply_dataset_balancing(self):
+        """
+        Enforce dataset-level balancing to prevent one dataset from dominating.
+        This is critical for research-grade results.
+        """
+        if len(self.datasets) <= 1:
+            return
+        
+        total_samples = sum(self.dataset_lengths)
+        max_allowed = int(total_samples * self.max_dataset_contribution)
+        
+        balanced_datasets = []
+        balanced_lengths = []
+        
+        for dataset, length in zip(self.datasets, self.dataset_lengths):
+            if length > max_allowed:
+                self.logger.warning(
+                    f"Dataset {dataset.config.name} has {length} samples, "
+                    f"capping to {max_allowed} (max {self.max_dataset_contribution*100}%)"
+                )
+                indices = np.random.permutation(length)[:max_allowed]
+                limited_data = [dataset.data[i] for i in indices]
+                dataset.data = limited_data
+                balanced_datasets.append(dataset)
+                balanced_lengths.append(max_allowed)
+            else:
+                balanced_datasets.append(dataset)
+                balanced_lengths.append(length)
+        
+        self.datasets = balanced_datasets
+        self.dataset_lengths = balanced_lengths
+    
+    def _log_contribution_ratios(self):
+        """Log final per-dataset contribution ratios."""
+        total = sum(self.dataset_lengths)
+        self.logger.info("=== Dataset Contribution Ratios ===")
+        for dataset, length in zip(self.datasets, self.dataset_lengths):
+            ratio = length / total if total > 0 else 0
+            self.logger.info(f"  {dataset.config.name}: {length} samples ({ratio*100:.2f}%)")
+        self.logger.info("=" * 35)
     
     def __len__(self) -> int:
         """Get total dataset length."""
@@ -89,7 +135,6 @@ class MultimodalDataset(BaseDataset):
         
         return info
 
-
 class SarcasmDataset(MultimodalDataset):
     """Specialized dataset for sarcasm detection task."""
     
@@ -98,6 +143,7 @@ class SarcasmDataset(MultimodalDataset):
         dataset_names: List[str],
         data_dir: Path,
         split: str = "train",
+        max_samples_per_dataset: Optional[int] = None,
         **kwargs
     ):
         """
@@ -107,11 +153,16 @@ class SarcasmDataset(MultimodalDataset):
             dataset_names: Names of sarcasm datasets to use
             data_dir: Root data directory
             split: Dataset split
+            max_samples_per_dataset: Maximum samples per dataset (for balancing)
             **kwargs: Additional arguments
         """
-        configs = []
+        if not isinstance(data_dir, Path):
+            data_dir = Path(data_dir)
+        data_dir = data_dir.resolve().absolute()
         
-        # Dataset configurations for sarcasm detection
+        configs = []
+        logger = get_logger("SarcasmDataset")
+        
         dataset_configs = {
             'mustard': DatasetConfig(
                 name='mustard',
@@ -121,28 +172,35 @@ class SarcasmDataset(MultimodalDataset):
                 format='json',
                 text_column='utterance',
                 label_column='sarcasm',
-                audio_column='audio_file',
-                video_column='video_file'
+                audio_features_file='data/audio_features.p',
+                max_samples=max_samples_per_dataset,
+                balance_strategy=None
             ),
             'mmsd2': DatasetConfig(
                 name='mmsd2',
                 path=data_dir / 'mmsd2',
                 modalities=['text', 'image'],
-                train_file='train_data.csv' if split == 'train' else f'{split}_data.csv',
-                format='csv',
+                train_file='text_json_final/train.json',
+                val_file='text_json_final/valid.json',
+                test_file='text_json_final/test.json',
+                format='json',
                 text_column='text',
                 label_column='label',
-                image_column='image_path'
+                image_column='imageid',
+                max_samples=max_samples_per_dataset
             ),
             'sarcnet': DatasetConfig(
                 name='sarcnet',
-                path=data_dir / 'sarcnet',
+                path=data_dir / 'sarcnet' / 'SarcNet Image-Text',
                 modalities=['text', 'image'],
-                train_file='train.json' if split == 'train' else f'{split}.json',
-                format='json',
-                text_column='text',
-                label_column='sarcastic',
-                image_column='image_path'
+                train_file='SarcNetTrain.csv',
+                val_file='SarcNetVal.csv',
+                test_file='SarcNetTest.csv',
+                format='csv',
+                text_column='Text',
+                label_column='Multilabel',
+                image_column='Imagepath',
+                max_samples=max_samples_per_dataset
             ),
             'sarc': DatasetConfig(
                 name='sarc',
@@ -151,7 +209,10 @@ class SarcasmDataset(MultimodalDataset):
                 train_file='train-balanced-sarcasm.csv',
                 format='csv',
                 text_column='comment',
-                label_column='label'
+                label_column='label',
+                max_samples=max_samples_per_dataset,
+                balance_strategy='cap_max_samples',
+                balance_config={'max_samples': 50000}
             ),
             'sarcasm_headlines': DatasetConfig(
                 name='sarcasm_headlines',
@@ -160,36 +221,16 @@ class SarcasmDataset(MultimodalDataset):
                 train_file='Sarcasm_Headlines_Dataset.json',
                 format='json',
                 text_column='headline',
-                label_column='is_sarcastic'
-            ),
-            'spanish_sarcasm': DatasetConfig(
-                name='spanish_sarcasm',
-                path=data_dir / 'spanish_sarcasm',
-                modalities=['text'],
-                train_file='spanish_sarcasm_ULTIMATE_OPTIMIZED.csv',
-                format='csv',
-                text_column='text',
-                label_column='sarcastic'
-            ),
-            'ur_funny': DatasetConfig(
-                name='ur_funny',
-                path=data_dir / 'ur_funny',
-                modalities=['text', 'audio', 'video'],
-                train_file='ur_funny.csv',
-                format='csv',
-                text_column='text',
-                label_column='humor',  # Use humor as proxy for sarcasm
-                audio_column='audio_file',
-                video_column='video_file'
+                label_column='is_sarcastic',
+                max_samples=max_samples_per_dataset
             )
         }
         
-        # Select requested datasets
         for dataset_name in dataset_names:
             if dataset_name in dataset_configs:
                 configs.append(dataset_configs[dataset_name])
             else:
-                self.logger.warning(f"Unknown sarcasm dataset: {dataset_name}")
+                logger.warning(f"Unknown sarcasm dataset: {dataset_name}")
         
         super().__init__(configs, split, "sarcasm_detection", **kwargs)
     
@@ -206,20 +247,57 @@ class SarcasmDataset(MultimodalDataset):
                 'split': self.split
             }
             
-            # Add multimodal paths if available
-            if self.config.audio_column and self.config.audio_column in item:
-                processed_item['audio_path'] = item[self.config.audio_column]
+            if 'context' in item:
+                processed_item['context'] = item['context']
             
-            if self.config.image_column and self.config.image_column in item:
+            if self.config.name == 'mustard':
+                utterance_id = item.get('show', '') + "_" + str(item.get('id', ''))
+                
+                if self.audio_features_dict:
+                    processed_item['audio_features_key'] = utterance_id
+                
+                video_path = self.config.path / 'data' / 'videos' / 'utterances_final' / f'{utterance_id}.mp4'
+                if video_path.exists():
+                    processed_item['video_path'] = str(video_path)
+                
+                context_videos = []
+                context_texts = item.get('context', [])
+                if context_texts:
+                    context_video_dir = self.config.path / 'data' / 'videos' / 'context_final'
+                    for ctx_idx in range(len(context_texts)):
+                        context_video_id = f"{utterance_id}_C{ctx_idx}"
+                        context_video_path = context_video_dir / f'{context_video_id}.mp4'
+                        if context_video_path.exists():
+                            context_videos.append(str(context_video_path))
+                
+                if context_videos:
+                    processed_item['context_video_paths'] = context_videos
+            
+            elif self.config.name == 'mmsd2' and self.config.image_column in item:
+                image_id = str(item[self.config.image_column])
+                if not image_id.endswith('.jpg'):
+                    image_id = f'{image_id}.jpg'
+                image_path = self.config.path / 'dataset_image' / image_id
+                if image_path.exists():
+                    processed_item['image_path'] = str(image_path)
+            
+            elif self.config.name == 'sarcnet':
+                if 'Textlabel' in item:
+                    processed_item['text_label'] = int(item['Textlabel'])
+                if 'Imagelabel' in item:
+                    processed_item['image_label'] = int(item['Imagelabel'])
+                
+                if self.config.image_column and self.config.image_column in item:
+                    image_path = self.config.path / item[self.config.image_column]
+                    if image_path.exists():
+                        processed_item['image_path'] = str(image_path)
+            
+            elif self.config.image_column and self.config.image_column in item:
                 processed_item['image_path'] = item[self.config.image_column]
-            
-            if self.config.video_column and self.config.video_column in item:
-                processed_item['video_path'] = item[self.config.video_column]
             
             processed_data.append(processed_item)
         
         return processed_data
-
 
 class ParaphraseDataset(MultimodalDataset):
     """Specialized dataset for paraphrase generation task."""
@@ -229,6 +307,7 @@ class ParaphraseDataset(MultimodalDataset):
         dataset_names: List[str],
         data_dir: Path,
         split: str = "train",
+        max_samples_per_dataset: Optional[int] = None,
         **kwargs
     ):
         """
@@ -238,11 +317,16 @@ class ParaphraseDataset(MultimodalDataset):
             dataset_names: Names of paraphrase datasets to use
             data_dir: Root data directory
             split: Dataset split
+            max_samples_per_dataset: Maximum samples per dataset (for balancing)
             **kwargs: Additional arguments
         """
-        configs = []
+        if not isinstance(data_dir, Path):
+            data_dir = Path(data_dir)
+        data_dir = data_dir.resolve().absolute()
         
-        # Dataset configurations for paraphrasing
+        configs = []
+        logger = get_logger("ParaphraseDataset")
+        
         dataset_configs = {
             'paranmt': DatasetConfig(
                 name='paranmt',
@@ -250,35 +334,40 @@ class ParaphraseDataset(MultimodalDataset):
                 modalities=['text'],
                 train_file='para-nmt-5m-processed.txt',
                 format='txt',
-                text_column='source',
-                label_column='target'
+                max_samples=max_samples_per_dataset,
+                balance_strategy='cap_max_samples',
+                balance_config={'max_samples': 100000}
             ),
             'mrpc': DatasetConfig(
                 name='mrpc',
                 path=data_dir / 'MRPC',
                 modalities=['text'],
-                train_file='train.tsv' if split == 'train' else f'{split}.tsv',
+                train_file='train.tsv',
+                val_file='dev.tsv',
+                test_file='test.tsv',
                 format='tsv',
-                text_column='sentence1',
-                label_column='sentence2'
+                text_column='#1 String',
+                label_column='Quality',
+                max_samples=max_samples_per_dataset
             ),
             'quora': DatasetConfig(
                 name='quora',
                 path=data_dir / 'quora',
                 modalities=['text'],
-                train_file='train.csv' if split == 'train' else f'{split}.csv',
+                train_file='train.csv',
+                test_file='test.csv',
                 format='csv',
                 text_column='question1',
-                label_column='question2'
+                label_column='is_duplicate',
+                max_samples=max_samples_per_dataset
             )
         }
         
-        # Select requested datasets
         for dataset_name in dataset_names:
             if dataset_name in dataset_configs:
                 configs.append(dataset_configs[dataset_name])
             else:
-                self.logger.warning(f"Unknown paraphrase dataset: {dataset_name}")
+                logger.warning(f"Unknown paraphrase dataset: {dataset_name}")
         
         super().__init__(configs, split, "paraphrasing", **kwargs)
     
@@ -287,26 +376,65 @@ class ParaphraseDataset(MultimodalDataset):
         processed_data = []
         
         for item in raw_data:
-            source_text = item.get(self.config.text_column, '')
-            target_text = item.get(self.config.label_column, '')
-            
-            if source_text and target_text:  # Only include valid pairs
+            if self.config.name == 'paranmt':
+                line = item.get('line', '')
+                parts = line.split('\t')
+                if len(parts) >= 2:
+                    source_text = parts[0]
+                    target_text = parts[1]
+                    score = float(parts[2]) if len(parts) > 2 else 1.0
+                else:
+                    continue
+                
                 processed_item = {
-                    'id': item.get('id', f"sample_{len(processed_data)}"),
+                    'id': f"sample_{len(processed_data)}",
                     'source': source_text,
                     'target': target_text,
+                    'score': score,
                     'dataset': self.config.name,
                     'split': self.split
                 }
+            
+            elif self.config.name == 'mrpc':
+                sentence1 = item.get('#1 String', '')
+                sentence2 = item.get('#2 String', '')
+                quality = int(item.get('Quality', 0))
                 
-                # Add quality score if available
-                if 'quality' in item:
-                    processed_item['quality'] = float(item['quality'])
+                if sentence1 and sentence2:
+                    processed_item = {
+                        'id': item.get('#1 ID', f"sample_{len(processed_data)}"),
+                        'source': sentence1,
+                        'target': sentence2,
+                        'label': quality,
+                        'dataset': self.config.name,
+                        'split': self.split
+                    }
+                else:
+                    continue
+            
+            elif self.config.name == 'quora':
+                question1 = item.get('question1', '')
+                question2 = item.get('question2', '')
+                is_duplicate = int(item.get('is_duplicate', 0))
                 
-                processed_data.append(processed_item)
+                if question1 and question2:
+                    processed_item = {
+                        'id': item.get('id', f"sample_{len(processed_data)}"),
+                        'source': question1,
+                        'target': question2,
+                        'label': is_duplicate,
+                        'dataset': self.config.name,
+                        'split': self.split
+                    }
+                else:
+                    continue
+            
+            else:
+                continue
+            
+            processed_data.append(processed_item)
         
         return processed_data
-
 
 class FactVerificationDataset(MultimodalDataset):
     """Specialized dataset for fact verification task."""
@@ -316,6 +444,7 @@ class FactVerificationDataset(MultimodalDataset):
         dataset_names: List[str],
         data_dir: Path,
         split: str = "train",
+        max_samples_per_dataset: Optional[int] = None,
         **kwargs
     ):
         """
@@ -325,38 +454,47 @@ class FactVerificationDataset(MultimodalDataset):
             dataset_names: Names of fact verification datasets to use
             data_dir: Root data directory
             split: Dataset split
+            max_samples_per_dataset: Maximum samples per dataset (for balancing)
             **kwargs: Additional arguments
         """
-        configs = []
+        if not isinstance(data_dir, Path):
+            data_dir = Path(data_dir)
+        data_dir = data_dir.resolve().absolute()
         
-        # Dataset configurations for fact verification
+        configs = []
+        logger = get_logger("FactVerificationDataset")
+        
         dataset_configs = {
             'fever': DatasetConfig(
                 name='fever',
                 path=data_dir / 'FEVER',
                 modalities=['text'],
-                train_file='fever_train.jsonl' if split == 'train' else 'fever_test.jsonl',
+                train_file='fever_train.jsonl',
+                test_file='fever_test.jsonl',
                 format='jsonl',
                 text_column='claim',
-                label_column='label'
+                label_column='label',
+                max_samples=max_samples_per_dataset
             ),
             'liar': DatasetConfig(
                 name='liar',
                 path=data_dir / 'LIAR',
-                modalities=['text'],
-                train_file='train_formatted.csv' if split == 'train' else f'{split}.tsv',
-                format='csv' if split == 'train' else 'tsv',
-                text_column='statement',
-                label_column='label'
+                modalities=['text', 'metadata'],
+                train_file='train_formatted.csv',
+                val_file='valid.tsv',
+                test_file='test.tsv',
+                format='csv',
+                text_column='Statement',
+                label_column='Label',
+                max_samples=max_samples_per_dataset
             )
         }
         
-        # Select requested datasets
         for dataset_name in dataset_names:
             if dataset_name in dataset_configs:
                 configs.append(dataset_configs[dataset_name])
             else:
-                self.logger.warning(f"Unknown fact verification dataset: {dataset_name}")
+                logger.warning(f"Unknown fact verification dataset: {dataset_name}")
         
         super().__init__(configs, split, "fact_verification", **kwargs)
     
@@ -365,153 +503,38 @@ class FactVerificationDataset(MultimodalDataset):
         processed_data = []
         
         for item in raw_data:
-            claim = item.get(self.config.text_column, '')
-            label = item.get(self.config.label_column, 'NOT ENOUGH INFO')
-            
-            # Standardize FEVER labels
-            if label.upper() in ['SUPPORTS', 'REFUTES', 'NOT ENOUGH INFO']:
-                standardized_label = label.upper()
-            elif label in ['true', 'false', 'mostly-true', 'mostly-false']:
-                # LIAR labels
-                if label in ['true', 'mostly-true']:
-                    standardized_label = 'SUPPORTS'
-                else:
-                    standardized_label = 'REFUTES'
-            else:
-                standardized_label = 'NOT ENOUGH INFO'
-            
-            if claim:  # Only include valid claims
-                processed_item = {
-                    'id': item.get('id', f"sample_{len(processed_data)}"),
-                    'claim': claim,
-                    'label': standardized_label,
-                    'evidence': item.get('evidence', []),
-                    'dataset': self.config.name,
-                    'split': self.split
-                }
+            if self.config.name == 'fever':
+                claim = item.get('claim', '')
+                label = item.get('label', '')
                 
-                # Add additional metadata
-                if 'subject' in item:
-                    processed_item['subject'] = item['subject']
-                if 'context' in item:
-                    processed_item['context'] = item['context']
+                if claim and label:
+                    processed_item = {
+                        'id': item.get('id', f"sample_{len(processed_data)}"),
+                        'text': claim,
+                        'label': label,
+                        'evidence_id': item.get('evidence_id', -1),
+                        'evidence_wiki_url': item.get('evidence_wiki_url', ''),
+                        'dataset': self.config.name,
+                        'split': self.split
+                    }
+                    processed_data.append(processed_item)
+            
+            elif self.config.name == 'liar':
+                statement = item.get('Statement', '')
+                label = item.get('Label', '')
                 
-                processed_data.append(processed_item)
+                if statement and label:
+                    processed_item = {
+                        'id': item.get('ID', f"sample_{len(processed_data)}"),
+                        'text': statement,
+                        'label': label,
+                        'subject': item.get('Subject', ''),
+                        'speaker': item.get('Speaker', ''),
+                        'party': item.get('Party Affiliation', ''),
+                        'context': item.get('Context', ''),
+                        'dataset': self.config.name,
+                        'split': self.split
+                    }
+                    processed_data.append(processed_item)
         
         return processed_data
-
-
-class ChunkedDataset:
-    """
-    Dataset wrapper for chunked loading on memory-constrained devices.
-    """
-    
-    def __init__(
-        self,
-        base_dataset: Dataset,
-        chunk_size: int = 1000,
-        shuffle_chunks: bool = True,
-        cache_chunks: bool = True
-    ):
-        """
-        Initialize chunked dataset.
-        
-        Args:
-            base_dataset: Base dataset to chunk
-            chunk_size: Size of each chunk
-            shuffle_chunks: Whether to shuffle chunks
-            cache_chunks: Whether to cache chunks in memory
-        """
-        self.base_dataset = base_dataset
-        self.chunk_size = chunk_size
-        self.shuffle_chunks = shuffle_chunks
-        self.cache_chunks = cache_chunks
-        
-        self.logger = get_logger("ChunkedDataset")
-        
-        # Calculate chunks
-        self.total_samples = len(base_dataset)
-        self.num_chunks = (self.total_samples + chunk_size - 1) // chunk_size
-        
-        # Create chunk indices
-        self.chunk_indices = self._create_chunk_indices()
-        
-        # Current chunk state
-        self.current_chunk = 0
-        self.current_chunk_data = None
-        self.chunk_cache = {}
-        
-        self.logger.info(
-            f"Initialized chunked dataset: {self.total_samples} samples, "
-            f"{self.num_chunks} chunks of size {chunk_size}"
-        )
-    
-    def _create_chunk_indices(self) -> List[List[int]]:
-        """Create indices for each chunk."""
-        indices = list(range(self.total_samples))
-        
-        if self.shuffle_chunks:
-            np.random.shuffle(indices)
-        
-        chunks = []
-        for i in range(0, self.total_samples, self.chunk_size):
-            chunk_indices = indices[i:i + self.chunk_size]
-            chunks.append(chunk_indices)
-        
-        return chunks
-    
-    def load_chunk(self, chunk_idx: int) -> List[Any]:
-        """
-        Load specific chunk into memory.
-        
-        Args:
-            chunk_idx: Chunk index to load
-            
-        Returns:
-            List of samples in chunk
-        """
-        if chunk_idx >= self.num_chunks:
-            raise IndexError(f"Chunk index {chunk_idx} out of range (0-{self.num_chunks-1})")
-        
-        # Check cache first
-        if self.cache_chunks and chunk_idx in self.chunk_cache:
-            return self.chunk_cache[chunk_idx]
-        
-        # Load chunk data
-        chunk_indices = self.chunk_indices[chunk_idx]
-        chunk_data = []
-        
-        for idx in chunk_indices:
-            try:
-                sample = self.base_dataset[idx]
-                chunk_data.append(sample)
-            except Exception as e:
-                self.logger.debug(f"Failed to load sample {idx}: {e}")
-        
-        # Cache if enabled
-        if self.cache_chunks:
-            self.chunk_cache[chunk_idx] = chunk_data
-        
-        self.logger.debug(f"Loaded chunk {chunk_idx}: {len(chunk_data)} samples")
-        return chunk_data
-    
-    def __iter__(self):
-        """Iterate over chunks."""
-        for chunk_idx in range(self.num_chunks):
-            chunk_data = self.load_chunk(chunk_idx)
-            yield chunk_idx, chunk_data
-    
-    def clear_cache(self):
-        """Clear chunk cache."""
-        self.chunk_cache.clear()
-        self.logger.info("Chunk cache cleared")
-    
-    def get_chunk_info(self) -> Dict[str, Any]:
-        """Get information about chunks."""
-        return {
-            'total_samples': self.total_samples,
-            'num_chunks': self.num_chunks,
-            'chunk_size': self.chunk_size,
-            'cached_chunks': len(self.chunk_cache),
-            'memory_usage_mb': sum(len(str(chunk)) for chunk in self.chunk_cache.values()) / (1024 * 1024)
-        }

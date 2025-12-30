@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+
 """
 Optuna-based Hyperparameter Tuning for FactCheck-MM
-
 Automated hyperparameter optimization using Optuna's Bayesian optimization.
 Optimizes model architecture, training parameters, and fusion strategies.
 """
@@ -31,7 +31,6 @@ except ImportError:
 from shared.utils.logging_utils import get_logger, setup_logging
 from shared.utils.metrics import MetricsComputer
 from config.training_configs import get_base_training_config
-
 
 @dataclass
 class OptunaConfig:
@@ -71,7 +70,6 @@ class OptunaConfig:
     save_best_model: bool = True
     save_all_configs: bool = True
     log_intermediate_values: bool = True
-
 
 class OptunaHyperparameterTuner:
     """Optuna-based hyperparameter tuner for FactCheck-MM models."""
@@ -130,16 +128,14 @@ class OptunaHyperparameterTuner:
                 device = "cpu"
         else:
             device = self.config.device
-        
         return device
     
     def _suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
         """Suggest hyperparameters for a trial."""
-        
         # Learning rate (log-uniform distribution)
         learning_rate = trial.suggest_float(
-            'learning_rate', 
-            self.config.learning_rate_bounds[0], 
+            'learning_rate',
+            self.config.learning_rate_bounds[0],
             self.config.learning_rate_bounds[1],
             log=True
         )
@@ -207,10 +203,8 @@ class OptunaHyperparameterTuner:
     
     def _objective(self, trial: optuna.Trial) -> float:
         """Objective function for optimization."""
-        
         # Get hyperparameters for this trial
         hyperparams = self._suggest_hyperparameters(trial)
-        
         trial_start_time = time.time()
         
         try:
@@ -247,7 +241,6 @@ class OptunaHyperparameterTuner:
                 # Validation
                 model.eval()
                 val_metrics = self._evaluate_epoch(model, 'val', epoch, trial)
-                
                 current_metric = val_metrics.get(self.config.metric_name, 0.0)
                 
                 # Check for improvement
@@ -306,11 +299,10 @@ class OptunaHyperparameterTuner:
             # Return worst possible value for failed trials
             return float('-inf') if self.config.direction == "maximize" else float('inf')
     
-    def _train_epoch(self, model: nn.Module, optimizer: torch.optim.Optimizer, 
-                    scheduler: torch.optim.lr_scheduler._LRScheduler, epoch: int, 
-                    trial: optuna.Trial) -> float:
+    def _train_epoch(self, model: nn.Module, optimizer: torch.optim.Optimizer,
+                     scheduler: torch.optim.lr_scheduler._LRScheduler, epoch: int,
+                     trial: optuna.Trial) -> float:
         """Train for one epoch."""
-        
         total_loss = 0.0
         num_batches = 0
         
@@ -347,16 +339,15 @@ class OptunaHyperparameterTuner:
             
             total_loss += loss.item()
             num_batches += 1
-            
-            # Memory cleanup
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+        
+        # Memory cleanup
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         return total_loss / num_batches if num_batches > 0 else 0.0
     
     def _evaluate_epoch(self, model: nn.Module, split: str, epoch: int, trial: optuna.Trial) -> Dict[str, float]:
         """Evaluate for one epoch."""
-        
         all_predictions = []
         all_labels = []
         total_loss = 0.0
@@ -406,7 +397,6 @@ class OptunaHyperparameterTuner:
     
     def optimize(self) -> Dict[str, Any]:
         """Run hyperparameter optimization."""
-        
         self.logger.info(f"Starting Optuna optimization with {self.config.n_trials} trials")
         
         # Setup study
@@ -450,7 +440,6 @@ class OptunaHyperparameterTuner:
     
     def _save_results(self) -> Dict[str, Any]:
         """Save optimization results."""
-        
         # Compile results
         results = {
             'study_name': self.config.study_name,
@@ -504,7 +493,6 @@ class OptunaHyperparameterTuner:
     
     def _create_optimization_plots(self):
         """Create optimization visualization plots."""
-        
         try:
             import matplotlib.pyplot as plt
             
@@ -516,7 +504,7 @@ class OptunaHyperparameterTuner:
             values = [t.value for t in trials]
             
             ax1.plot(values, 'b-', alpha=0.7, linewidth=1)
-            ax1.axhline(y=self.best_trial.value, color='r', linestyle='--', 
+            ax1.axhline(y=self.best_trial.value, color='r', linestyle='--',
                        label=f'Best: {self.best_trial.value:.4f}')
             ax1.set_xlabel('Trial Number')
             ax1.set_ylabel(self.config.metric_name)
@@ -534,9 +522,8 @@ class OptunaHyperparameterTuner:
                 ax2.set_xlabel('Importance')
                 ax2.set_title('Parameter Importance')
                 ax2.grid(True)
-                
             except Exception as e:
-                ax2.text(0.5, 0.5, f'Parameter importance\nnot available:\n{str(e)}', 
+                ax2.text(0.5, 0.5, f'Parameter importance\nnot available:\n{str(e)}',
                         ha='center', va='center', transform=ax2.transAxes)
             
             plt.tight_layout()
@@ -547,7 +534,7 @@ class OptunaHyperparameterTuner:
             plt.close()
             
             self.logger.info(f"Optimization plots saved to: {plot_file}")
-            
+        
         except ImportError:
             self.logger.warning("Matplotlib not available - skipping optimization plots")
         except Exception as e:
@@ -557,7 +544,6 @@ class OptunaHyperparameterTuner:
         """Get the best configuration from optimization."""
         if self.best_config is None:
             raise ValueError("Optimization has not been run yet")
-        
         return self.best_config.copy()
     
     def load_best_model(self) -> Optional[torch.nn.Module]:
@@ -580,14 +566,12 @@ class OptunaHyperparameterTuner:
             self.logger.warning(f"Best model file not found: {trial_model_path}")
             return None
 
-
 def main():
     """Example usage of Optuna hyperparameter tuning."""
     
     # Example model factory
     def create_sarcasm_model(hyperparams):
         from sarcasm_detection.models import MultimodalSarcasmModel
-        
         model_config = {
             'modalities': ['text', 'audio', 'image'],
             'fusion_strategy': hyperparams['fusion_strategy'],
@@ -598,7 +582,6 @@ def main():
             'num_classes': 2,
             'dropout_rate': hyperparams['dropout_rate']
         }
-        
         return MultimodalSarcasmModel(model_config)
     
     # Example data loaders (would be created from actual datasets)
@@ -633,7 +616,6 @@ def main():
     
     print("Optimization completed!")
     print(f"Best configuration: {tuner.get_best_config()}")
-
 
 if __name__ == "__main__":
     main()

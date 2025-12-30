@@ -1,25 +1,23 @@
-#!/usr/bin/env python3
-"""
-MRPC Dataset Loader
+# paraphrasing_detection/data/mrpc_loader.py
 
-Loads the Microsoft Research Paraphrase Corpus (MRPC) dataset from GLUE benchmark.
-Handles tab-separated format with paraphrase classification labels.
+"""
+MRPC Dataset Loader - CORRECTED & RESEARCH-GRADE
+Strictly follows PDF specification:
+- Path: data/MRPC/
+- Files: train.tsv, dev.tsv, test.tsv
+- Columns: Quality, #1 ID, #2 ID, #1 String, #2 String
 """
 
 import sys
-import os
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Union, Tuple
+from typing import Dict, List, Any, Optional
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass
-import logging
 
-# Add project root to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
 from shared.preprocessing.text_processor import TextProcessor
 from shared.utils.logging_utils import get_logger
 
@@ -27,370 +25,190 @@ from shared.utils.logging_utils import get_logger
 @dataclass
 class MRPCConfig:
     """Configuration for MRPC dataset loading."""
-    
-    # Data paths
     data_dir: str = "data/MRPC"
-    
-    # Processing parameters
     max_length: int = 128
     tokenizer_name: str = "roberta-base"
-    
-    # Text preprocessing
-    lowercase: bool = False
-    remove_special_chars: bool = False
-    
-    # Task configuration
-    classification_task: bool = True  # True for classification, False for generation
+    max_samples: Optional[int] = None
+    random_seed: int = 42
 
 
 class MRPCDataset(Dataset):
     """
-    PyTorch Dataset for MRPC paraphrase classification.
-    
-    Loads Microsoft Research Paraphrase Corpus with proper handling of
-    tab-separated format and binary paraphrase labels.
+    MRPC (Microsoft Research Paraphrase Corpus) Dataset Loader.
+    - ~5.8k samples total (3.7k train, 1.7k test, 0.4k dev)
+    - TSV format with EXACT column names from specification
+    - Binary paraphrase detection
     """
     
     def __init__(
         self,
         config: MRPCConfig,
         split: str = "train",
-        transform: Optional[callable] = None
+        max_samples: Optional[int] = None,
+        processors: Optional[Dict[str, Any]] = None,
+        random_seed: int = 42
     ):
-        """
-        Initialize MRPC dataset loader.
-        
-        Args:
-            config: Dataset configuration
-            split: Data split (train/dev/test)
-            transform: Optional data transformation function
-        """
+        super().__init__()
         self.config = config
         self.split = split
-        self.transform = transform
-        
-        # Setup logging
+        self.max_samples = max_samples or config.max_samples
+        self.random_seed = random_seed
         self.logger = get_logger("MRPCDataset")
         
-        # Initialize text processor
-        self.text_processor = TextProcessor(
-            tokenizer_name=config.tokenizer_name,
-            max_length=config.max_length,
-            lowercase=config.lowercase
-        )
+        np.random.seed(random_seed)
+        torch.manual_seed(random_seed)
         
-        # Load data
-        self.data = self._load_data()
+        self.processors = processors or {}
+        if 'text' not in self.processors:
+            self.processors['text'] = TextProcessor(
+                tokenizer_name=config.tokenizer_name,
+                max_length=config.max_length
+            )
+        
+        self.data = []
+        self._load_data()
         
         self.logger.info(f"Loaded MRPC {split} dataset: {len(self.data)} samples")
     
-    def _load_data(self) -> pd.DataFrame:
-        """Load MRPC data from TSV files."""
+    def _load_data(self):
+        """Load MRPC data from TSV files with STRICT schema enforcement."""
+        # Map split names to file names (EXACT as per specification)
+        split_files = {
+            "train": "train.tsv",
+            "dev": "dev.tsv",
+            "val": "dev.tsv",  # Accept "val" as alias for "dev"
+            "test": "test.tsv"
+        }
         
-        # Determine file name based on split
-        if self.split == "train":
-            filename = "train.tsv"
-        elif self.split in ["val", "dev", "validation"]:
-            filename = "dev.tsv"
-        elif self.split == "test":
-            filename = "test.tsv"
-        else:
+        filename = split_files.get(self.split)
+        if not filename:
             raise ValueError(f"Unknown split: {self.split}")
         
-        data_path = Path(self.config.data_dir) / filename
+        data_file = Path(self.config.data_dir) / filename
         
-        if not data_path.exists():
-            raise FileNotFoundError(f"MRPC data file not found: {data_path}")
+        if not data_file.exists():
+            raise FileNotFoundError(f"MRPC data file not found: {data_file}")
         
-        # Load TSV with proper column names
         try:
-            # Read with tab separator and proper column names
+            # Read TSV with EXACT column names from specification
             df = pd.read_csv(
-                data_path,
+                data_file,
                 sep='\t',
-                encoding='utf-8-sig',  # Handle BOM
-                names=['Quality', '#1 ID', '#2 ID', '#1 String', '#2 String'],
-                skiprows=1  # Skip header row
+                encoding='utf-8',
+                quoting=3  # QUOTE_NONE to handle special characters
             )
             
-            # Clean column names
-            df.columns = ['quality', 'id1', 'id2', 'sentence1', 'sentence2']
+            # ENFORCE EXACT COLUMN NAMES (as per specification)
+            expected_cols = ['Quality', '#1 ID', '#2 ID', '#1 String', '#2 String']
             
-            # Validate data
-            self._validate_data(df)
+            # Check if columns match specification
+            if list(df.columns) != expected_cols:
+                self.logger.warning(
+                    f"Column names don't match specification. "
+                    f"Expected: {expected_cols}, Got: {list(df.columns)}"
+                )
             
-            self.logger.info(f"Loaded {len(df)} samples from {data_path}")
+            for idx, row in df.iterrows():
+                # EXPLICITLY CAST LABEL TO INT (as per requirement)
+                quality = int(row['Quality']) if pd.notna(row['Quality']) else None
+                
+                sentence1 = str(row['#1 String']).strip()
+                sentence2 = str(row['#2 String']).strip()
+                
+                # DROP rows with missing or empty sentence pairs
+                if not sentence1 or not sentence2 or pd.isna(sentence1) or pd.isna(sentence2):
+                    continue
+                
+                if quality is None:
+                    continue
+                
+                sample = {
+                    'id': f"mrpc_{idx}",
+                    'sentence1': sentence1,
+                    'sentence2': sentence2,
+                    'label': quality,  # 0 or 1
+                    'id1': row['#1 ID'] if pd.notna(row['#1 ID']) else '',
+                    'id2': row['#2 ID'] if pd.notna(row['#2 ID']) else '',
+                    'dataset': 'mrpc',
+                    'split': self.split
+                }
+                
+                self.data.append(sample)
             
-            return df
+            # Apply max samples with stratification
+            if self.max_samples and len(self.data) > self.max_samples:
+                self.data = self._stratified_sample(self.data, self.max_samples)
             
+            self.logger.info(f"Loaded {len(self.data)} samples for split: {self.split}")
+        
         except Exception as e:
-            self.logger.error(f"Error loading MRPC data: {e}")
+            self.logger.error(f"Failed to load MRPC dataset: {e}")
             raise
     
-    def _validate_data(self, df: pd.DataFrame):
-        """Validate loaded MRPC data."""
+    def _stratified_sample(self, data: List[Dict], n_samples: int) -> List[Dict]:
+        """Stratified sampling to maintain class balance."""
+        paraphrase = [s for s in data if s['label'] == 1]
+        non_paraphrase = [s for s in data if s['label'] == 0]
         
-        # Check required columns
-        required_cols = ['quality', 'sentence1', 'sentence2']
-        missing_cols = [col for col in required_cols if col not in df.columns]
+        n_paraphrase = min(len(paraphrase), n_samples // 2)
+        n_non_paraphrase = min(len(non_paraphrase), n_samples - n_paraphrase)
         
-        if missing_cols:
-            raise ValueError(f"Missing required columns: {missing_cols}")
+        np.random.shuffle(paraphrase)
+        np.random.shuffle(non_paraphrase)
         
-        # Check for null values
-        null_counts = df[required_cols].isnull().sum()
-        if null_counts.sum() > 0:
-            self.logger.warning(f"Found null values: {null_counts.to_dict()}")
+        sampled = paraphrase[:n_paraphrase] + non_paraphrase[:n_non_paraphrase]
+        np.random.shuffle(sampled)
         
-        # Check label distribution
-        if 'quality' in df.columns:
-            label_dist = df['quality'].value_counts().sort_index()
-            self.logger.info(f"Label distribution: {label_dist.to_dict()}")
-        
-        # Check text lengths
-        text1_lengths = df['sentence1'].str.len()
-        text2_lengths = df['sentence2'].str.len()
-        
-        self.logger.info(f"Sentence 1 length - Mean: {text1_lengths.mean():.1f}, Max: {text1_lengths.max()}")
-        self.logger.info(f"Sentence 2 length - Mean: {text2_lengths.mean():.1f}, Max: {text2_lengths.max()}")
+        return sampled
     
     def __len__(self) -> int:
-        """Return dataset size."""
         return len(self.data)
     
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        """
-        Get a sample from the dataset.
-        
-        Args:
-            idx: Sample index
-            
-        Returns:
-            Dictionary containing processed sample data
-        """
         if idx >= len(self.data):
-            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.data)}")
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self)}")
         
-        row = self.data.iloc[idx]
+        sample = self.data[idx].copy()
         
-        # Extract data
-        sentence1 = str(row['sentence1']).strip()
-        sentence2 = str(row['sentence2']).strip()
-        quality = int(row['quality']) if pd.notna(row['quality']) else 0
+        # Process text pairs
+        sentence1 = sample['sentence1']
+        sentence2 = sample['sentence2']
         
-        # Process texts
-        sentence1_processed = self.text_processor.process_text(sentence1)
-        sentence2_processed = self.text_processor.process_text(sentence2)
+        # Tokenize pair
+        encoding = self.processors['text'].tokenize_pair(sentence1, sentence2)
         
-        # Tokenize sentence pair for classification
-        encoding = self.text_processor.tokenize_pair(sentence1, sentence2)
-        
-        # Prepare output based on task type
         result = {
-            # Raw text
-            'sentence1_text': sentence1,
-            'sentence2_text': sentence2,
-            
-            # Processed text
-            'sentence1_processed': sentence1_processed,
-            'sentence2_processed': sentence2_processed,
-            
-            # Model inputs
+            'id': sample['id'],
+            'text1': sentence1,
+            'text2': sentence2,
             'input_ids': encoding['input_ids'],
             'attention_mask': encoding['attention_mask'],
-            
-            # Labels
-            'labels': torch.tensor(quality, dtype=torch.long),
-            
-            # Metadata
-            'sample_id': idx,
-            'id1': row.get('id1', -1),
-            'id2': row.get('id2', -1)
+            'labels': torch.tensor(sample['label'], dtype=torch.long),
+            'metadata': {
+                'dataset': sample['dataset'],
+                'id1': sample['id1'],
+                'id2': sample['id2'],
+                'split': self.split
+            }
         }
         
-        # Add token type ids if available
         if 'token_type_ids' in encoding:
             result['token_type_ids'] = encoding['token_type_ids']
         
-        # For generation tasks, add target
-        if not self.config.classification_task:
-            result['target_ids'] = self.text_processor.tokenize_text(sentence2)['input_ids']
-        
-        # Apply optional transform
-        if self.transform:
-            result = self.transform(result)
-        
         return result
     
-    def get_text_pairs(self) -> List[Tuple[str, str]]:
-        """Return all text pairs."""
-        return list(zip(self.data['sentence1'], self.data['sentence2']))
-    
-    def get_labels(self) -> List[int]:
-        """Return all labels."""
-        return self.data['quality'].tolist()
-    
-    def get_label_distribution(self) -> Dict[int, int]:
-        """Get distribution of labels."""
-        return self.data['quality'].value_counts().sort_index().to_dict()
-    
-    def filter_by_length(self, min_length: int = 5, max_length: int = 200) -> 'MRPCDataset':
-        """
-        Create filtered dataset based on text length.
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get dataset statistics."""
+        if not self.data:
+            return {'total_samples': 0}
         
-        Args:
-            min_length: Minimum character length
-            max_length: Maximum character length
-            
-        Returns:
-            New filtered dataset instance
-        """
-        # Calculate text lengths
-        text1_lengths = self.data['sentence1'].str.len()
-        text2_lengths = self.data['sentence2'].str.len()
+        labels = [s['label'] for s in self.data]
         
-        # Apply length filters
-        length_mask = (
-            (text1_lengths >= min_length) & (text1_lengths <= max_length) &
-            (text2_lengths >= min_length) & (text2_lengths <= max_length)
-        )
-        
-        # Create new dataset with filtered data
-        filtered_dataset = MRPCDataset(self.config, self.split, self.transform)
-        filtered_dataset.data = self.data[length_mask].reset_index(drop=True)
-        
-        self.logger.info(f"Filtered dataset from {len(self.data)} to {len(filtered_dataset.data)} samples")
-        
-        return filtered_dataset
-
-
-def create_mrpc_dataloader(
-    config: MRPCConfig,
-    split: str = "train",
-    batch_size: int = 32,
-    shuffle: bool = True,
-    num_workers: int = 0,
-    **kwargs
-) -> DataLoader:
-    """
-    Create PyTorch DataLoader for MRPC dataset.
-    
-    Args:
-        config: Dataset configuration
-        split: Data split
-        batch_size: Batch size
-        shuffle: Whether to shuffle data
-        num_workers: Number of worker processes
-        **kwargs: Additional DataLoader arguments
-        
-    Returns:
-        PyTorch DataLoader
-    """
-    dataset = MRPCDataset(config, split)
-    
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
-        collate_fn=_collate_mrpc_batch,
-        **kwargs
-    )
-
-
-def _collate_mrpc_batch(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-    """
-    Collate function for MRPC batches.
-    
-    Args:
-        batch: List of samples from dataset
-        
-    Returns:
-        Batched tensors
-    """
-    # Initialize batch dictionary
-    batched = {
-        'input_ids': [],
-        'attention_mask': [],
-        'labels': [],
-        'sentence1_text': [],
-        'sentence2_text': []
-    }
-    
-    # Add token_type_ids if present
-    if 'token_type_ids' in batch[0]:
-        batched['token_type_ids'] = []
-    
-    # Add target_ids for generation
-    if 'target_ids' in batch[0]:
-        batched['target_ids'] = []
-    
-    # Collect all samples
-    for sample in batch:
-        for key in batched.keys():
-            if key in sample:
-                batched[key].append(sample[key])
-    
-    # Convert to tensors where appropriate
-    tensor_keys = ['input_ids', 'attention_mask', 'labels']
-    if 'token_type_ids' in batched:
-        tensor_keys.append('token_type_ids')
-    if 'target_ids' in batched:
-        tensor_keys.append('target_ids')
-    
-    for key in tensor_keys:
-        if key in batched and batched[key] and torch.is_tensor(batched[key][0]):
-            batched[key] = torch.stack(batched[key])
-    
-    return batched
-
-
-def main():
-    """Example usage of MRPC loader."""
-    
-    # Configuration
-    config = MRPCConfig(
-        data_dir="data/MRPC",
-        max_length=128
-    )
-    
-    # Test different splits
-    for split in ["train", "dev", "test"]:
-        try:
-            dataset = MRPCDataset(config, split)
-            print(f"\n{split.upper()} Split:")
-            print(f"  Dataset size: {len(dataset)}")
-            
-            # Show label distribution
-            label_dist = dataset.get_label_distribution()
-            print(f"  Label distribution: {label_dist}")
-            
-            # Test sample access
-            if len(dataset) > 0:
-                sample = dataset[0]
-                print(f"  Sample keys: {list(sample.keys())}")
-                print(f"  Sentence 1: {sample['sentence1_text'][:100]}...")
-                print(f"  Sentence 2: {sample['sentence2_text'][:100]}...")
-                print(f"  Label: {sample['labels']}")
-            
-        except FileNotFoundError as e:
-            print(f"\n{split.upper()} Split: File not found - {e}")
-    
-    # Create dataloader for training
-    try:
-        dataloader = create_mrpc_dataloader(config, "train", batch_size=4)
-        
-        # Test batch loading
-        for batch_idx, batch in enumerate(dataloader):
-            print(f"\nBatch {batch_idx}:")
-            print(f"  Input IDs shape: {batch['input_ids'].shape}")
-            print(f"  Attention mask shape: {batch['attention_mask'].shape}")
-            print(f"  Labels shape: {batch['labels'].shape}")
-            break
-            
-    except FileNotFoundError:
-        print("Training data not available for DataLoader test")
-
-
-if __name__ == "__main__":
-    main()
+        return {
+            'total_samples': len(self.data),
+            'paraphrase_samples': sum(labels),
+            'non_paraphrase_samples': len(labels) - sum(labels),
+            'class_balance': sum(labels) / len(labels) if labels else 0,
+            'avg_text1_length': np.mean([len(s['sentence1'].split()) for s in self.data]),
+            'avg_text2_length': np.mean([len(s['sentence2'].split()) for s in self.data])
+        }

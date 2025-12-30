@@ -1,4 +1,3 @@
-# sarcasm_detection/training/curriculum_learning.py
 """
 Curriculum Learning for Sarcasm Detection
 Progressive training based on task difficulty and sample complexity.
@@ -22,7 +21,6 @@ from ..utils import SarcasmMetrics
 from .train_text import TextSarcasmTrainer
 from .train_multimodal import MultimodalSarcasmTrainer
 
-
 @dataclass
 class CurriculumConfig:
     """Configuration for curriculum learning."""
@@ -38,7 +36,7 @@ class CurriculumConfig:
     
     # Difficulty estimation
     complexity_features: List[str] = field(default_factory=lambda: [
-        'text_length', 'sentiment_intensity', 'readability_score', 
+        'text_length', 'sentiment_intensity', 'readability_score',
         'syntactic_complexity', 'irony_markers'
     ])
     
@@ -61,6 +59,13 @@ class CurriculumConfig:
     log_curriculum_progression: bool = True
     save_difficulty_scores: bool = True
 
+DATASET_MODALITY_PROFILE = {
+    'sarc': 1,
+    'sarcasm_headlines': 1,
+    'mmsd2': 2,
+    'sarcnet': 2,
+    'mustard': 4
+}
 
 class DifficultyEstimator:
     """Estimates difficulty of sarcasm detection samples."""
@@ -80,7 +85,7 @@ class DifficultyEstimator:
         
         # Difficulty scores cache
         self.difficulty_cache = {}
-        
+    
     def _setup_feature_extractors(self):
         """Setup feature extractors for difficulty estimation."""
         try:
@@ -199,34 +204,39 @@ class DifficultyEstimator:
             text_difficulty = self.estimate_text_complexity(sample['text'])
             difficulty_scores.append(text_difficulty)
         
-        # Modality availability (multimodal samples might be easier)
+        # Dataset-specific difficulty
+        dataset_name = sample.get('dataset', 'unknown')
+        dataset_difficulty_map = {
+            'mustard': 0.8,
+            'sarc': 0.6,
+            'sarcasm_headlines': 0.4,
+            'mmsd2': 0.7,
+            'sarcnet': 0.7
+        }
+        
+        if dataset_name in dataset_difficulty_map:
+            dataset_difficulty = dataset_difficulty_map[dataset_name]
+            difficulty_scores.append(dataset_difficulty)
+        else:
+            if dataset_name != 'unknown':
+                self.logger.warning(f"Unknown dataset '{dataset_name}', using default difficulty of 0.6")
+            difficulty_scores.append(0.6)
+        
+        # Modality-based difficulty (normalized against expected modality profile)
         available_modalities = 0
         for modality in ['text', 'audio', 'image', 'video']:
             if modality in sample and sample[modality] is not None:
                 available_modalities += 1
         
-        # More modalities = potentially easier (more cues)
-        if available_modalities > 0:
-            modality_difficulty = max(0, 1 - (available_modalities - 1) * 0.2)
+        if available_modalities > 0 and dataset_name in DATASET_MODALITY_PROFILE:
+            expected_modalities = DATASET_MODALITY_PROFILE[dataset_name]
+            modality_ratio = available_modalities / expected_modalities
+            modality_difficulty = 1.0 - (modality_ratio - 1.0) * 0.1 if modality_ratio > 1.0 else 1.0 - (1.0 - modality_ratio) * 0.3
+            modality_difficulty = max(0.0, min(1.0, modality_difficulty))
             difficulty_scores.append(modality_difficulty)
         
-        # Dataset-specific difficulty
-        dataset_name = sample.get('dataset', 'unknown')
-        dataset_difficulty_map = {
-            'mustard': 0.8,      # TV shows - contextual, difficult
-            'sarc': 0.6,         # Reddit - varied difficulty
-            'headlines': 0.4,    # News headlines - more obvious
-            'spanish': 0.9,      # Cross-lingual - very difficult
-            'ur_funny': 0.5,     # Humor - moderate
-            'mmsd2': 0.7,        # Multimodal - context-dependent
-            'sarcnet': 0.7       # Multimodal with separate labels
-        }
-        
-        dataset_difficulty = dataset_difficulty_map.get(dataset_name, 0.5)
-        difficulty_scores.append(dataset_difficulty)
-        
         # Final difficulty score
-        final_difficulty = np.mean(difficulty_scores) if difficulty_scores else 0.5
+        final_difficulty = np.mean(difficulty_scores) if difficulty_scores else 0.6
         
         # Cache result
         self.difficulty_cache[sample_id] = final_difficulty
@@ -246,7 +256,6 @@ class DifficultyEstimator:
         self.logger.info(f"Ranking {len(dataset)} samples by difficulty...")
         
         difficulty_scores = []
-        
         for idx in tqdm(range(len(dataset)), desc="Estimating difficulty"):
             sample = dataset[idx]
             difficulty = self.estimate_sample_difficulty(sample)
@@ -263,7 +272,6 @@ class DifficultyEstimator:
         
         return difficulty_scores
 
-
 class CurriculumScheduler:
     """Manages curriculum progression and sample selection."""
     
@@ -278,7 +286,6 @@ class CurriculumScheduler:
         self.config = config
         self.difficulty_ranking = difficulty_ranking
         self.total_samples = len(difficulty_ranking)
-        
         self.logger = get_logger("CurriculumScheduler")
         
         # Create curriculum steps
@@ -326,7 +333,6 @@ class CurriculumScheduler:
                 # Mix of easy and proportionally hard samples
                 easy_count = int(sample_count * 0.7)
                 hard_count = sample_count - easy_count
-                
                 easy_samples = self.difficulty_ranking[:easy_count]
                 hard_samples = self.difficulty_ranking[-hard_count:] if hard_count > 0 else []
                 step_samples = easy_samples + hard_samples
@@ -356,7 +362,6 @@ class CurriculumScheduler:
         """Get data for current curriculum step."""
         if self.current_step >= len(self.curriculum_steps):
             return self.curriculum_steps[-1]  # Return last step
-        
         return self.curriculum_steps[self.current_step]
     
     def advance_step(self) -> bool:
@@ -389,7 +394,6 @@ class CurriculumScheduler:
         f1_score = performance_metrics.get('val_f1', 0.0)
         return f1_score >= self.config.performance_threshold
 
-
 class CurriculumTrainer:
     """Trainer that implements curriculum learning for sarcasm detection."""
     
@@ -419,7 +423,6 @@ class CurriculumTrainer:
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self.test_dataset = test_dataset
-        
         self.logger = get_logger("CurriculumTrainer")
         
         if not train_dataset:
@@ -446,7 +449,6 @@ class CurriculumTrainer:
         """Create base trainer for curriculum steps."""
         if isinstance(self.model, MultimodalSarcasmModel):
             from .train_multimodal import MultimodalTrainingConfig, MultimodalSarcasmTrainer
-            
             base_config = MultimodalTrainingConfig(**self.config.base_trainer_config)
             return MultimodalSarcasmTrainer(
                 model=self.model,
@@ -457,7 +459,6 @@ class CurriculumTrainer:
             )
         else:
             from .train_text import TextTrainingConfig, TextSarcasmTrainer
-            
             base_config = TextTrainingConfig(**self.config.base_trainer_config)
             return TextSarcasmTrainer(
                 model=self.model,
@@ -470,10 +471,8 @@ class CurriculumTrainer:
     def _create_step_dataset(self, step_info: Dict[str, Any]):
         """Create dataset for a curriculum step."""
         from torch.utils.data import Subset
-        
         step_indices = step_info['sample_indices']
         step_dataset = Subset(self.train_dataset, step_indices)
-        
         return step_dataset
     
     def train_curriculum_step(
@@ -556,12 +555,10 @@ class CurriculumTrainer:
         
         # Resume from specific step if requested
         self.curriculum_scheduler.current_step = resume_from_step
-        
         self.logger.info(f"Starting curriculum training from step {resume_from_step}")
         
         # Training loop through curriculum steps
         all_results = []
-        
         while True:
             # Get current step information
             step_info = self.curriculum_scheduler.get_current_step_data()
@@ -571,7 +568,7 @@ class CurriculumTrainer:
             
             # Log step results
             experiment_logger.log_metrics(
-                {f"curriculum_step_{step_info['step_number']}_{k}": v 
+                {f"curriculum_step_{step_info['step_number']}_{k}": v
                  for k, v in step_results.items() if isinstance(v, (int, float))},
                 step=step_info['step_number']
             )
@@ -634,6 +631,7 @@ class CurriculumTrainer:
                 }, f, indent=2)
         
         experiment_logger.close()
+        
         self.logger.info("Curriculum training completed")
         
         return complete_results

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""
-Unified Paraphrasing Dataset Loader
 
-Provides a unified interface for loading and combining multiple paraphrasing datasets
-including ParaNMT-5M, MRPC, and Quora with standardized output format.
+"""
+Unified Fact Verification Dataset Loader
+Combines FEVER and LIAR datasets into a unified fact-checking dataset with
+consistent label schema, balanced sampling, and curriculum learning capabilities
+for comprehensive fact verification model training.
 """
 
 import sys
@@ -11,497 +12,555 @@ import os
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Tuple
 import torch
-from torch.utils.data import Dataset, DataLoader, ConcatDataset, WeightedRandomSampler
-import pandas as pd
+from torch.utils.data import Dataset
 import numpy as np
-from dataclasses import dataclass, field
+import random
 import logging
-from collections import Counter
+from dataclasses import dataclass, field
 
-# Add project root to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from .paranmt_loader import ParaNMTLoader, ParaNMTConfig
-from .mrpc_loader import MRPCDataset, MRPCConfig
-from .quora_loader import QuoraDataset, QuoraConfig
-from shared.preprocessing.text_processor import TextProcessor
+from .fever_loader import FeverDataset, FeverDatasetConfig
+from .liar_loader import LiarDataset, LiarDatasetConfig
+from shared.preprocessing.text_processor import TextProcessor, TextProcessorConfig
+from shared.datasets.data_loaders import ChunkedDataLoader
 from shared.utils.logging_utils import get_logger
 
-
 @dataclass
-class UnifiedParaphraseConfig:
-    """Configuration for unified paraphrase dataset loading."""
+class UnifiedFactDatasetConfig:
+    """Configuration for unified fact verification dataset."""
     
-    # Dataset selection flags
-    use_paranmt: bool = True
-    use_mrpc: bool = True
-    use_quora: bool = True
+    use_fever: bool = True
+    use_liar: bool = True
+    fever_only: bool = False
+    liar_only: bool = False
     
-    # Dataset-specific configurations
-    paranmt_config: Optional[ParaNMTConfig] = field(default_factory=lambda: ParaNMTConfig())
-    mrpc_config: Optional[MRPCConfig] = field(default_factory=lambda: MRPCConfig())
-    quora_config: Optional[QuoraConfig] = field(default_factory=lambda: QuoraConfig())
-    
-    # Unified processing parameters
-    max_length: int = 128
-    tokenizer_name: str = "roberta-base"
-    
-    # Dataset balancing
     balance_datasets: bool = True
-    dataset_weights: Optional[Dict[str, float]] = None
+    fever_sample_ratio: float = 0.7
+    liar_sample_ratio: float = 0.3
+    balance_labels: bool = True
+    max_samples_per_dataset: Optional[int] = None
     
-    # Sampling configuration
-    max_samples_per_dataset: Optional[Dict[str, int]] = None
-    total_max_samples: Optional[int] = None
+    unified_label_mapping: Dict[str, int] = field(default_factory=lambda: {
+        'SUPPORTS': 0,
+        'REFUTES': 1,
+        'NOT_ENOUGH_INFO': 2
+    })
     
-    # Output standardization
-    standardize_outputs: bool = True
-    include_dataset_id: bool = True
+    liar_to_unified: Dict[str, str] = field(default_factory=lambda: {
+        'true': 'SUPPORTS',
+        'mostly-true': 'SUPPORTS',
+        'half-true': 'NOT_ENOUGH_INFO',
+        'mostly-false': 'REFUTES',
+        'false': 'REFUTES',
+        'pants-fire': 'REFUTES'
+    })
     
-    # Task configuration
-    task_type: str = "classification"  # "classification" or "generation"
+    curriculum_learning: bool = False
+    curriculum_stage: float = 1.0
+    curriculum_stages: List[float] = field(default_factory=lambda: [0.0, 0.3, 0.6, 1.0])
+    
+    max_text_length: int = 256
+    standardize_text_format: bool = True
+    include_source_info: bool = True
+    
+    shuffle_datasets: bool = True
+    seed: int = 42
+    cache_unified_samples: bool = True
 
-
-class UnifiedParaphraseDataset(Dataset):
+class UnifiedFactDataset(Dataset):
     """
-    Unified dataset combining multiple paraphrasing datasets.
-    
-    Provides standardized interface and output format for training
-    paraphrase models across different datasets.
+    Unified fact verification dataset combining FEVER and LIAR.
+    Provides consistent three-class labeling (SUPPORTS, REFUTES, NOT_ENOUGH_INFO)
+    with flexible sampling strategies and curriculum learning support.
     """
     
     def __init__(
         self,
-        config: UnifiedParaphraseConfig,
         split: str = "train",
-        transform: Optional[callable] = None
+        config: Optional[UnifiedFactDatasetConfig] = None,
+        fever_config: Optional[FeverDatasetConfig] = None,
+        liar_config: Optional[LiarDatasetConfig] = None,
+        text_processor: Optional[TextProcessor] = None
     ):
         """
-        Initialize unified paraphrase dataset.
+        Initialize unified fact verification dataset.
         
         Args:
+            split: Data split ('train', 'test', 'valid')
             config: Unified dataset configuration
-            split: Data split (train/val/test)
-            transform: Optional data transformation function
+            fever_config: FEVER dataset configuration
+            liar_config: LIAR dataset configuration
+            text_processor: Text preprocessing pipeline
         """
-        self.config = config
         self.split = split
-        self.transform = transform
+        self.config = config or UnifiedFactDatasetConfig()
+        self.logger = get_logger("UnifiedFactDataset")
         
-        # Setup logging
-        self.logger = get_logger("UnifiedParaphraseDataset")
+        random.seed(self.config.seed)
+        np.random.seed(self.config.seed)
         
-        # Initialize text processor
-        self.text_processor = TextProcessor(
-            tokenizer_name=config.tokenizer_name,
-            max_length=config.max_length
-        )
-        
-        # Load individual datasets
-        self.datasets = {}
-        self.dataset_indices = {}
-        self._load_datasets()
-        
-        # Create unified mapping
-        self._create_unified_mapping()
-        
-        # Setup balanced sampling if needed
-        self.sampler = None
-        if config.balance_datasets and split == "train":
-            self.sampler = self._create_balanced_sampler()
-        
-        total_samples = sum(len(dataset) for dataset in self.datasets.values())
-        self.logger.info(f"Created unified dataset with {total_samples} total samples from {len(self.datasets)} datasets")
-    
-    def _load_datasets(self):
-        """Load individual datasets based on configuration."""
-        
-        dataset_configs = [
-            ("paranmt", self.config.use_paranmt, self.config.paranmt_config, ParaNMTLoader),
-            ("mrpc", self.config.use_mrpc, self.config.mrpc_config, MRPCDataset),
-            ("quora", self.config.use_quora, self.config.quora_config, QuoraDataset)
-        ]
-        
-        for name, use_dataset, dataset_config, dataset_class in dataset_configs:
-            if not use_dataset:
-                continue
-            
-            try:
-                # Apply max samples limit if specified
-                if (self.config.max_samples_per_dataset and 
-                    name in self.config.max_samples_per_dataset):
-                    max_samples = self.config.max_samples_per_dataset[name]
-                    
-                    # Update dataset config
-                    if hasattr(dataset_config, 'max_samples'):
-                        dataset_config.max_samples = max_samples
-                
-                # Special handling for ParaNMT split (no official splits)
-                if name == "paranmt" and self.split in ["val", "test"]:
-                    # Skip ParaNMT for val/test or use a portion
-                    if self.split == "val":
-                        dataset_config.max_samples = min(1000, dataset_config.max_samples or 1000)
-                    else:  # test
-                        continue
-                
-                dataset = dataset_class(dataset_config, self.split)
-                self.datasets[name] = dataset
-                
-                self.logger.info(f"Loaded {name} dataset: {len(dataset)} samples")
-                
-            except Exception as e:
-                self.logger.warning(f"Failed to load {name} dataset: {e}")
-                continue
-    
-    def _create_unified_mapping(self):
-        """Create mapping from unified indices to dataset indices."""
-        
-        current_index = 0
-        
-        for dataset_name, dataset in self.datasets.items():
-            dataset_size = len(dataset)
-            self.dataset_indices[dataset_name] = {
-                'start': current_index,
-                'end': current_index + dataset_size,
-                'size': dataset_size
-            }
-            current_index += dataset_size
-        
-        self.total_size = current_index
-        
-        # Apply total sample limit
-        if self.config.total_max_samples and self.total_size > self.config.total_max_samples:
-            # Calculate proportional limits for each dataset
-            scale_factor = self.config.total_max_samples / self.total_size
-            
-            new_total = 0
-            for dataset_name, indices in self.dataset_indices.items():
-                new_size = int(indices['size'] * scale_factor)
-                self.dataset_indices[dataset_name]['size'] = new_size
-                self.dataset_indices[dataset_name]['end'] = new_total + new_size
-                new_total += new_size
-            
-            self.total_size = new_total
-            self.logger.info(f"Applied total sample limit: {self.total_size} samples")
-    
-    def _create_balanced_sampler(self) -> Optional[WeightedRandomSampler]:
-        """Create balanced sampler across datasets."""
-        
-        if not self.config.balance_datasets:
-            return None
-        
-        # Calculate dataset weights
-        if self.config.dataset_weights:
-            weights = self.config.dataset_weights
+        if text_processor is None:
+            processor_config = TextProcessorConfig(
+                model_name="roberta-base",
+                max_length=self.config.max_text_length,
+                lowercase=False,
+                remove_special_chars=False
+            )
+            self.text_processor = TextProcessor(processor_config)
         else:
-            # Equal weight to each dataset regardless of size
-            num_datasets = len(self.datasets)
-            weights = {name: 1.0/num_datasets for name in self.datasets.keys()}
+            self.text_processor = text_processor
         
-        # Create sample weights
-        sample_weights = []
+        self.fever_dataset = None
+        self.liar_dataset = None
         
-        for dataset_name, dataset in self.datasets.items():
-            dataset_weight = weights.get(dataset_name, 1.0)
-            dataset_size = self.dataset_indices[dataset_name]['size']
+        self.unified_samples = []
+        self.dataset_indices = []
+        
+        self._load_constituent_datasets(fever_config, liar_config)
+        self._create_unified_dataset()
+        
+        self.logger.info(
+            f"Created unified {split} dataset with {len(self.unified_samples)} samples "
+            f"(FEVER: {self._count_fever_samples()}, LIAR: {self._count_liar_samples()})"
+        )
+    
+    def _load_constituent_datasets(
+        self,
+        fever_config: Optional[FeverDatasetConfig],
+        liar_config: Optional[LiarDatasetConfig]
+    ):
+        """Load individual FEVER and LIAR datasets."""
+        if self.config.use_fever and not self.config.liar_only:
+            try:
+                if fever_config is None:
+                    fever_config = FeverDatasetConfig(
+                        max_claim_length=self.config.max_text_length // 2,
+                        max_evidence_length=self.config.max_text_length // 2,
+                        filter_no_evidence=False
+                    )
+                self.fever_dataset = FeverDataset(
+                    self.split,
+                    config=fever_config,
+                    text_processor=self.text_processor
+                )
+                self.logger.info(f"Loaded FEVER dataset: {len(self.fever_dataset)} samples")
+            except Exception as e:
+                self.logger.error(f"Failed to load FEVER dataset: {e}")
+                raise
+        
+        if self.config.use_liar and not self.config.fever_only:
+            try:
+                if liar_config is None:
+                    liar_config = LiarDatasetConfig(
+                        max_statement_length=self.config.max_text_length,
+                        binary_labels=False,
+                        include_context_info=True
+                    )
+                self.liar_dataset = LiarDataset(
+                    self.split,
+                    config=liar_config,
+                    text_processor=self.text_processor
+                )
+                self.logger.info(f"Loaded LIAR dataset: {len(self.liar_dataset)} samples")
+            except Exception as e:
+                self.logger.error(f"Failed to load LIAR dataset: {e}")
+                raise
+    
+    def _create_unified_dataset(self):
+        """Create unified dataset by combining and balancing constituent datasets."""
+        fever_samples = self._extract_fever_samples()
+        liar_samples = self._extract_liar_samples()
+        
+        if self.config.curriculum_learning:
+            fever_samples, liar_samples = self._apply_curriculum_filtering(fever_samples, liar_samples)
+        
+        if self.config.balance_datasets:
+            fever_samples, liar_samples = self._balance_datasets(fever_samples, liar_samples)
+        
+        all_samples = fever_samples + liar_samples
+        dataset_indices = (['fever'] * len(fever_samples) +
+                          ['liar'] * len(liar_samples))
+        
+        if self.config.shuffle_datasets:
+            combined = list(zip(all_samples, dataset_indices))
+            random.shuffle(combined)
+            all_samples, dataset_indices = zip(*combined)
+            all_samples = list(all_samples)
+            dataset_indices = list(dataset_indices)
+        
+        self.unified_samples = all_samples
+        self.dataset_indices = dataset_indices
+        
+        self.logger.info(
+            f"Created unified dataset: {len(fever_samples)} FEVER + "
+            f"{len(liar_samples)} LIAR = {len(self.unified_samples)} total"
+        )
+    
+    def _extract_fever_samples(self) -> List[Dict[str, Any]]:
+        """Extract and convert FEVER samples to unified format."""
+        if not self.fever_dataset:
+            return []
+        
+        fever_samples = []
+        for i in range(len(self.fever_dataset)):
+            try:
+                original_sample = self.fever_dataset[i]
+                
+                unified_sample = {
+                    'claim': original_sample['claim_text'],
+                    'evidence': original_sample.get('evidence_text', []),
+                    'original_label': original_sample['label_text'],
+                    'unified_label': original_sample['label_text'],
+                    'label_id': original_sample['label'].item(),
+                    'source_dataset': 'fever',
+                    'original_id': original_sample['sample_id']
+                }
+                
+                if self.config.standardize_text_format:
+                    unified_sample.update(self._standardize_text_inputs(unified_sample))
+                
+                fever_samples.append(unified_sample)
+            except Exception as e:
+                self.logger.warning(f"Error converting FEVER sample {i}: {e}")
+                continue
+        
+        return fever_samples
+    
+    def _extract_liar_samples(self) -> List[Dict[str, Any]]:
+        """Extract and convert LIAR samples to unified format."""
+        if not self.liar_dataset:
+            return []
+        
+        liar_samples = []
+        for i in range(len(self.liar_dataset)):
+            try:
+                original_sample = self.liar_dataset[i]
+                original_label = original_sample['original_label']
+                
+                unified_label = self.config.liar_to_unified.get(original_label, 'NOT_ENOUGH_INFO')
+                unified_label_id = self.config.unified_label_mapping.get(unified_label, 2)
+                
+                unified_sample = {
+                    'claim': original_sample['statement_text'],
+                    'evidence': [],
+                    'original_label': original_label,
+                    'unified_label': unified_label,
+                    'label_id': unified_label_id,
+                    'source_dataset': 'liar',
+                    'original_id': original_sample['sample_id']
+                }
+                
+                if 'speaker' in original_sample:
+                    unified_sample['speaker'] = original_sample['speaker']
+                    unified_sample['party_affiliation'] = original_sample.get('party_affiliation', '')
+                
+                if self.config.standardize_text_format:
+                    unified_sample.update(self._standardize_text_inputs(unified_sample))
+                
+                liar_samples.append(unified_sample)
+            except Exception as e:
+                self.logger.warning(f"Error converting LIAR sample {i}: {e}")
+                continue
+        
+        return liar_samples
+    
+    def _standardize_text_inputs(self, sample: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        """Standardize text inputs for unified processing."""
+        claim = sample['claim']
+        evidence = sample.get('evidence', [])
+        
+        if evidence and len(evidence) > 0:
+            if isinstance(evidence, list):
+                evidence_text = " [SEP] ".join(evidence)
+            else:
+                evidence_text = str(evidence)
             
-            # Weight each sample in the dataset
-            sample_weight = dataset_weight / dataset_size
-            sample_weights.extend([sample_weight] * dataset_size)
+            inputs = self.text_processor.process_text_pair(
+                claim, evidence_text,
+                max_length_a=self.config.max_text_length // 2,
+                max_length_b=self.config.max_text_length // 2,
+                truncation="longest_first"
+            )
+        else:
+            inputs = self.text_processor.process_text(
+                claim,
+                max_length=self.config.max_text_length,
+                truncation=True
+            )
         
-        # Create sampler
-        sampler = WeightedRandomSampler(
-            weights=sample_weights[:self.total_size],
-            num_samples=self.total_size,
-            replacement=True
+        return {
+            'input_ids': inputs['input_ids'],
+            'attention_mask': inputs['attention_mask']
+        }
+    
+    def _apply_curriculum_filtering(
+        self,
+        fever_samples: List[Dict[str, Any]],
+        liar_samples: List[Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Apply curriculum learning filtering based on stage."""
+        stage = self.config.curriculum_stage
+        
+        if stage <= 0.0:
+            return fever_samples, []
+        elif stage >= 1.0:
+            return fever_samples, liar_samples
+        else:
+            liar_count = int(len(liar_samples) * stage)
+            return fever_samples, liar_samples[:liar_count]
+    
+    def _balance_datasets(
+        self,
+        fever_samples: List[Dict[str, Any]],
+        liar_samples: List[Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Balance samples between datasets according to configured ratios."""
+        if not fever_samples or not liar_samples:
+            return fever_samples, liar_samples
+        
+        total_available = len(fever_samples) + len(liar_samples)
+        
+        if self.config.max_samples_per_dataset:
+            total_target = min(total_available, self.config.max_samples_per_dataset * 2)
+        else:
+            total_target = total_available
+        
+        fever_target = int(total_target * self.config.fever_sample_ratio)
+        liar_target = int(total_target * self.config.liar_sample_ratio)
+        
+        if len(fever_samples) > fever_target:
+            fever_samples = random.sample(fever_samples, fever_target)
+        if len(liar_samples) > liar_target:
+            liar_samples = random.sample(liar_samples, liar_target)
+        
+        self.logger.info(
+            f"Balanced datasets: {len(fever_samples)} FEVER, {len(liar_samples)} LIAR"
         )
         
-        self.logger.info(f"Created balanced sampler with dataset weights: {weights}")
+        if self.config.balance_labels:
+            fever_samples = self._balance_labels_within_dataset(fever_samples)
+            liar_samples = self._balance_labels_within_dataset(liar_samples)
         
-        return sampler
+        return fever_samples, liar_samples
     
-    def _find_dataset_and_index(self, unified_idx: int) -> Tuple[str, int]:
-        """Find which dataset and local index for a unified index."""
+    def _balance_labels_within_dataset(self, samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Balance labels within a single dataset."""
+        label_groups = {}
+        for sample in samples:
+            label_id = sample['label_id']
+            if label_id not in label_groups:
+                label_groups[label_id] = []
+            label_groups[label_id].append(sample)
         
-        for dataset_name, indices in self.dataset_indices.items():
-            if indices['start'] <= unified_idx < indices['end']:
-                local_idx = unified_idx - indices['start']
-                
-                # Ensure we don't exceed the actual dataset size
-                actual_size = min(indices['size'], len(self.datasets[dataset_name]))
-                if local_idx >= actual_size:
-                    local_idx = local_idx % actual_size
-                
-                return dataset_name, local_idx
+        if len(label_groups) <= 1:
+            return samples
         
-        raise IndexError(f"Unified index {unified_idx} out of range")
+        min_size = min(len(group) for group in label_groups.values())
+        
+        balanced_samples = []
+        for group in label_groups.values():
+            balanced_samples.extend(random.sample(group, min(len(group), min_size)))
+        
+        return balanced_samples
+    
+    def _count_fever_samples(self) -> int:
+        """Count FEVER samples in unified dataset."""
+        return sum(1 for idx in self.dataset_indices if idx == 'fever')
+    
+    def _count_liar_samples(self) -> int:
+        """Count LIAR samples in unified dataset."""
+        return sum(1 for idx in self.dataset_indices if idx == 'liar')
     
     def __len__(self) -> int:
-        """Return total dataset size."""
-        return self.total_size
+        """Return dataset size."""
+        return len(self.unified_samples)
     
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """
-        Get a sample from the unified dataset.
+        Get a single sample from the unified dataset.
         
         Args:
-            idx: Unified sample index
+            idx: Sample index
             
         Returns:
-            Dictionary containing standardized sample data
+            Dictionary with unified model inputs
         """
-        if idx >= self.total_size:
-            raise IndexError(f"Index {idx} out of range for dataset of size {self.total_size}")
+        if idx >= len(self.unified_samples):
+            raise IndexError(f"Index {idx} out of range for dataset size {len(self.unified_samples)}")
         
-        # Find source dataset and local index
-        dataset_name, local_idx = self._find_dataset_and_index(idx)
-        dataset = self.datasets[dataset_name]
+        sample = self.unified_samples[idx]
+        source_dataset = self.dataset_indices[idx]
         
-        # Get sample from source dataset
-        sample = dataset[local_idx]
-        
-        # Standardize output format
-        if self.config.standardize_outputs:
-            sample = self._standardize_sample(sample, dataset_name)
-        
-        # Add dataset identifier if requested
-        if self.config.include_dataset_id:
-            dataset_id = list(self.datasets.keys()).index(dataset_name)
-            sample['dataset_id'] = torch.tensor(dataset_id, dtype=torch.long)
-            sample['dataset_name'] = dataset_name
-        
-        # Apply optional transform
-        if self.transform:
-            sample = self.transform(sample)
-        
-        return sample
-    
-    def _standardize_sample(self, sample: Dict[str, Any], dataset_name: str) -> Dict[str, Any]:
-        """Standardize sample format across datasets."""
-        
-        # Standard output format
-        standardized = {
-            'input_ids': sample.get('input_ids'),
-            'attention_mask': sample.get('attention_mask'),
-            'labels': sample.get('labels', torch.tensor(1, dtype=torch.long)),  # Default to positive
+        result = {
+            'input_ids': sample['input_ids'],
+            'attention_mask': sample['attention_mask'],
+            'label': torch.tensor(sample['label_id'], dtype=torch.long)
         }
         
-        # Add token type ids if available
-        if 'token_type_ids' in sample:
-            standardized['token_type_ids'] = sample['token_type_ids']
+        result['sample_id'] = sample['original_id']
+        result['claim'] = sample['claim']
+        result['evidence'] = sample.get('evidence', [])
+        result['unified_label'] = sample['unified_label']
+        result['original_label'] = sample['original_label']
+        result['source_dataset'] = source_dataset
         
-        # Standardize text fields
-        if dataset_name == "paranmt":
-            standardized['text1'] = sample.get('reference_text', '')
-            standardized['text2'] = sample.get('paraphrase_text', '')
-        elif dataset_name == "mrpc":
-            standardized['text1'] = sample.get('sentence1_text', '')
-            standardized['text2'] = sample.get('sentence2_text', '')
-        elif dataset_name == "quora":
-            standardized['text1'] = sample.get('question1_text', '')
-            standardized['text2'] = sample.get('question2_text', '')
+        if source_dataset == 'liar' and 'speaker' in sample:
+            result['speaker'] = sample['speaker']
+            result['party_affiliation'] = sample.get('party_affiliation', '')
         
-        # Add generation targets if needed
-        if self.config.task_type == "generation":
-            standardized['target_ids'] = sample.get('target_ids', standardized.get('input_ids'))
-        
-        # Add metadata
-        standardized['sample_id'] = sample.get('sample_id', 0)
-        
-        # Copy additional fields
-        additional_fields = ['quality_score', 'score']
-        for field in additional_fields:
-            if field in sample:
-                standardized[field] = sample[field]
-        
-        return standardized
+        return result
     
-    def get_dataset_info(self) -> Dict[str, Dict[str, Any]]:
-        """Get information about constituent datasets."""
-        
-        info = {}
-        
-        for dataset_name, dataset in self.datasets.items():
-            indices = self.dataset_indices[dataset_name]
-            
-            info[dataset_name] = {
-                'size': len(dataset),
-                'unified_start': indices['start'],
-                'unified_end': indices['end'],
-                'unified_size': indices['size']
+    def get_dataset_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive statistics for the unified dataset."""
+        stats = {
+            'total_samples': len(self.unified_samples),
+            'fever_samples': self._count_fever_samples(),
+            'liar_samples': self._count_liar_samples(),
+            'unified_label_distribution': {},
+            'source_distribution': {
+                'fever': self._count_fever_samples() / len(self.unified_samples) * 100,
+                'liar': self._count_liar_samples() / len(self.unified_samples) * 100
             }
+        }
+        
+        for sample in self.unified_samples:
+            label = sample['unified_label']
+            stats['unified_label_distribution'][label] = stats['unified_label_distribution'].get(label, 0) + 1
+        
+        if self.unified_samples:
+            claim_lengths = [len(s['claim'].split()) for s in self.unified_samples]
+            stats['avg_claim_length'] = np.mean(claim_lengths)
+            stats['max_claim_length'] = np.max(claim_lengths)
+            stats['min_claim_length'] = np.min(claim_lengths)
             
-            # Add dataset-specific info
-            if hasattr(dataset, 'get_label_distribution'):
-                info[dataset_name]['label_distribution'] = dataset.get_label_distribution()
+            evidence_counts = [
+                len(s.get('evidence', [])) for s in self.unified_samples
+            ]
+            stats['avg_evidence_sentences'] = np.mean(evidence_counts)
+            stats['samples_with_evidence'] = sum(1 for c in evidence_counts if c > 0)
+            stats['evidence_coverage'] = stats['samples_with_evidence'] / len(self.unified_samples) * 100
         
-        return info
+        return stats
     
-    def get_text_pairs_by_dataset(self) -> Dict[str, List[Tuple[str, str]]]:
-        """Get text pairs organized by dataset."""
+    def get_label_mapping_info(self) -> Dict[str, Any]:
+        """Get information about label mappings used."""
+        return {
+            'unified_labels': list(self.config.unified_label_mapping.keys()),
+            'unified_mapping': self.config.unified_label_mapping,
+            'liar_to_unified': self.config.liar_to_unified
+        }
+    
+    def create_dataloader(
+        self,
+        batch_size: int = 16,
+        shuffle: bool = True,
+        num_workers: int = 2,
+        use_chunked: bool = False
+    ) -> Union[torch.utils.data.DataLoader, ChunkedDataLoader]:
+        """
+        Create a DataLoader for the unified dataset.
         
-        pairs_by_dataset = {}
+        Args:
+            batch_size: Batch size
+            shuffle: Whether to shuffle data
+            num_workers: Number of worker processes
+            use_chunked: Whether to use chunked loading
+            
+        Returns:
+            DataLoader instance
+        """
+        if use_chunked:
+            return ChunkedDataLoader(
+                self,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                chunk_size=1000
+            )
+        else:
+            return torch.utils.data.DataLoader(
+                self,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                num_workers=num_workers,
+                collate_fn=self._collate_fn
+            )
+    
+    def _collate_fn(self, batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+        """Custom collate function for batching."""
+        collated = {}
         
-        for dataset_name, dataset in self.datasets.items():
-            if hasattr(dataset, 'get_text_pairs'):
-                pairs_by_dataset[dataset_name] = dataset.get_text_pairs()
+        for key in ['input_ids', 'attention_mask', 'label']:
+            if key in batch[0]:
+                collated[key] = torch.stack([item[key] for item in batch])
         
-        return pairs_by_dataset
-    
-    def get_balanced_sampler(self) -> Optional[WeightedRandomSampler]:
-        """Get the balanced sampler if created."""
-        return self.sampler
-
-
-def create_unified_dataloader(
-    config: UnifiedParaphraseConfig,
-    split: str = "train",
-    batch_size: int = 32,
-    shuffle: bool = True,
-    num_workers: int = 0,
-    **kwargs
-) -> DataLoader:
-    """
-    Create PyTorch DataLoader for unified paraphrase dataset.
-    
-    Args:
-        config: Unified dataset configuration
-        split: Data split
-        batch_size: Batch size
-        shuffle: Whether to shuffle data
-        num_workers: Number of worker processes
-        **kwargs: Additional DataLoader arguments
+        metadata_keys = [
+            'sample_id', 'claim', 'evidence', 'unified_label',
+            'original_label', 'source_dataset', 'speaker', 'party_affiliation'
+        ]
+        for key in metadata_keys:
+            if key in batch[0]:
+                collated[key] = [item[key] for item in batch]
         
-    Returns:
-        PyTorch DataLoader
-    """
-    dataset = UnifiedParaphraseDataset(config, split)
-    
-    # Use balanced sampler for training if available
-    sampler = dataset.get_balanced_sampler() if split == "train" else None
-    if sampler:
-        shuffle = False  # Don't shuffle when using sampler
-    
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        sampler=sampler,
-        num_workers=num_workers,
-        collate_fn=_collate_unified_batch,
-        **kwargs
-    )
-
-
-def _collate_unified_batch(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-    """
-    Collate function for unified paraphrase batches.
-    
-    Args:
-        batch: List of samples from dataset
-        
-    Returns:
-        Batched tensors
-    """
-    # Initialize batch dictionary
-    batched = {
-        'input_ids': [],
-        'attention_mask': [],
-        'labels': [],
-        'text1': [],
-        'text2': []
-    }
-    
-    # Add optional fields
-    optional_fields = ['token_type_ids', 'target_ids', 'dataset_id', 'dataset_name', 'quality_score']
-    for field in optional_fields:
-        if any(field in sample for sample in batch):
-            batched[field] = []
-    
-    # Collect all samples
-    for sample in batch:
-        for key in batched.keys():
-            if key in sample:
-                batched[key].append(sample[key])
-            elif key in ['text1', 'text2']:
-                batched[key].append('')  # Default empty string
-    
-    # Convert to tensors where appropriate
-    tensor_keys = ['input_ids', 'attention_mask', 'labels']
-    tensor_keys.extend([k for k in optional_fields if k in batched and k not in ['dataset_name']])
-    
-    for key in tensor_keys:
-        if key in batched and batched[key] and torch.is_tensor(batched[key][0]):
-            batched[key] = torch.stack(batched[key])
-    
-    return batched
-
+        return collated
 
 def main():
-    """Example usage of unified paraphrase loader."""
+    """Example usage of UnifiedFactDataset."""
+    configs = [
+        ("Balanced Mix", UnifiedFactDatasetConfig(
+            use_fever=True, use_liar=True, balance_datasets=True
+        )),
+        ("FEVER Only", UnifiedFactDatasetConfig(
+            fever_only=True
+        )),
+        ("LIAR Only", UnifiedFactDatasetConfig(
+            liar_only=True
+        )),
+        ("Curriculum Stage 0.5", UnifiedFactDatasetConfig(
+            use_fever=True, use_liar=True, curriculum_learning=True, curriculum_stage=0.5
+        ))
+    ]
     
-    # Configuration with selective dataset loading
-    config = UnifiedParaphraseConfig(
-        use_paranmt=True,
-        use_mrpc=True,
-        use_quora=True,
-        balance_datasets=True,
-        max_samples_per_dataset={
-            'paranmt': 1000,
-            'mrpc': None,  # Use all available
-            'quora': 500
-        },
-        total_max_samples=2000
-    )
-    
-    # Update individual dataset configs for testing
-    config.paranmt_config.max_samples = 1000
-    config.paranmt_config.use_chunked_loading = False
-    config.quora_config.max_samples = 500
-    
-    # Test different splits
-    for split in ["train", "val"]:
+    for config_name, config in configs:
         try:
-            dataset = UnifiedParaphraseDataset(config, split)
-            print(f"\n{split.upper()} Split:")
-            print(f"  Total dataset size: {len(dataset)}")
+            print(f"\n=== {config_name} ===")
             
-            # Show dataset composition
-            dataset_info = dataset.get_dataset_info()
-            print("  Dataset composition:")
-            for name, info in dataset_info.items():
-                print(f"    {name}: {info['unified_size']} samples")
+            unified_data = UnifiedFactDataset('train', config=config)
+            print(f"Dataset size: {len(unified_data)}")
             
-            # Test sample access
-            if len(dataset) > 0:
-                sample = dataset[0]
-                print(f"  Sample keys: {list(sample.keys())}")
-                print(f"  Text 1: {sample['text1'][:50]}...")
-                print(f"  Text 2: {sample['text2'][:50]}...")
-                print(f"  Labels: {sample['labels']}")
-                if 'dataset_name' in sample:
-                    print(f"  Dataset: {sample['dataset_name']}")
+            stats = unified_data.get_dataset_statistics()
+            print("\nDataset Statistics:")
+            for key, value in stats.items():
+                if isinstance(value, dict):
+                    print(f"{key}:")
+                    for k, v in value.items():
+                        print(f"  {k}: {v}")
+                else:
+                    print(f"{key}: {value:.2f}" if isinstance(value, float) else f"{key}: {value}")
             
-        except Exception as e:
-            print(f"\n{split.upper()} Split: Error - {e}")
-    
-    # Create dataloader with balanced sampling
-    try:
-        dataloader = create_unified_dataloader(config, "train", batch_size=4)
+            if len(unified_data) > 0:
+                sample = unified_data[0]
+                print(f"\nSample:")
+                print(f"Claim: {sample['claim'][:100]}...")
+                print(f"Unified Label: {sample['unified_label']} ({sample['label'].item()})")
+                print(f"Source: {sample['source_dataset']}")
+                print(f"Input shape: {sample['input_ids'].shape}")
+                
+                if sample['evidence']:
+                    print(f"Evidence: {str(sample['evidence'])[:100]}...")
+            
+            if config_name == "Balanced Mix":
+                mapping_info = unified_data.get_label_mapping_info()
+                print(f"\nLabel Mapping:")
+                for k, v in mapping_info['liar_to_unified'].items():
+                    print(f"  LIAR '{k}' -> '{v}'")
         
-        # Test batch loading
-        for batch_idx, batch in enumerate(dataloader):
-            print(f"\nBatch {batch_idx}:")
-            print(f"  Input IDs shape: {batch['input_ids'].shape}")
-            print(f"  Labels shape: {batch['labels'].shape}")
-            if 'dataset_id' in batch:
-                unique_datasets = torch.unique(batch['dataset_id'])
-                print(f"  Datasets in batch: {unique_datasets.tolist()}")
-            break
-            
-    except Exception as e:
-        print(f"DataLoader test failed: {e}")
-
+        except Exception as e:
+            print(f"Error with {config_name}: {e}")
+    
+    print("\nNote: Ensure both FEVER and LIAR data files are available:")
+    print("  data/FEVER/fever_train.jsonl")
+    print("  data/LIAR/train_formatted.csv")
 
 if __name__ == "__main__":
     main()

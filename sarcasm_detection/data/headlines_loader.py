@@ -1,7 +1,9 @@
 # sarcasm_detection/data/headlines_loader.py
+
 """
 Sarcasm Headlines Dataset Loader for Sarcasm Detection
 News headlines dataset with 28.6K samples.
+Strictly follows PDF specification.
 """
 
 import json
@@ -18,9 +20,18 @@ from shared.utils import get_logger
 class HeadlinesDataset(Dataset):
     """
     Sarcasm Headlines Dataset Loader.
+    - 28,619 news headlines
+    - Binary classification: sarcastic (The Onion) vs non-sarcastic (HuffPost)
+    - Text-only modality
     
-    Contains 28,619 news headlines from HuffPost and The Onion.
-    Binary classification: sarcastic (The Onion) vs non-sarcastic (HuffPost).
+    Path structure (as per PDF):
+    Sarcasm Headlines/
+    └── Sarcasm_Headlines_Dataset.json
+    
+    JSON Schema (per object):
+    - is_sarcastic (0/1)
+    - headline (string)
+    - article_link (string)
     """
     
     def __init__(
@@ -32,32 +43,17 @@ class HeadlinesDataset(Dataset):
         cache_data: bool = True,
         random_seed: int = 42
     ):
-        """
-        Initialize Headlines dataset.
-        
-        Args:
-            data_dir: Path to Headlines dataset directory
-            split: Dataset split ('train', 'val', 'test')
-            max_samples: Maximum number of samples to load
-            processors: Dictionary of processors for each modality
-            cache_data: Whether to cache processed data
-            random_seed: Random seed for reproducibility
-        """
         super().__init__()
-        
         self.data_dir = Path(data_dir)
         self.split = split
         self.max_samples = max_samples
         self.cache_data = cache_data
         self.random_seed = random_seed
-        
         self.logger = get_logger("HeadlinesDataset")
         
-        # Set random seed
         np.random.seed(random_seed)
         torch.manual_seed(random_seed)
         
-        # Initialize processors
         self.processors = processors or {}
         if 'text' not in self.processors:
             self.processors['text'] = TextProcessor(
@@ -67,65 +63,57 @@ class HeadlinesDataset(Dataset):
                 normalize_whitespace=True
             )
         
-        # Data storage
         self.data = []
         self.cache = {}
         
-        # Load data
         self._load_data()
         
         self.logger.info(f"Loaded Headlines dataset: {len(self.data)} samples, split: {split}")
     
     def _load_data(self):
         """Load Headlines dataset from JSON file."""
-        
         data_file = self.data_dir / "Sarcasm_Headlines_Dataset.json"
         
         if not data_file.exists():
             raise FileNotFoundError(f"Headlines data file not found: {data_file}")
         
         try:
-            # Load JSON data
             with open(data_file, 'r', encoding='utf-8') as f:
                 raw_data = json.load(f)
             
-            # Process each item
             all_samples = []
-            for item in raw_data:
-                sample = {
-                    'id': f"headlines_{len(all_samples)}",
-                    'text': str(item.get('headline', '')),
-                    'label': int(item.get('is_sarcastic', 0)),  # 1 for sarcastic, 0 for non-sarcastic
-                    'article_link': item.get('article_link', ''),
-                    'dataset': 'headlines'
-                }
+            for idx, item in enumerate(raw_data):
+                headline = str(item.get('headline', ''))
                 
-                # Skip empty headlines
-                if sample['text'] and sample['text'].strip():
+                if headline and headline.strip():
+                    sample = {
+                        'id': f"sarcasm_headlines_{idx}",
+                        'text': headline,
+                        'label': int(item.get('is_sarcastic', 0)),  # 0=non-sarcastic, 1=sarcastic
+                        'article_link': item.get('article_link', ''),
+                        'dataset': 'sarcasm_headlines',
+                        'split': self.split
+                    }
                     all_samples.append(sample)
             
-            # Create train/val/test split
+            # Create split
             self.data = self._create_split(all_samples)
             
-            # Apply max samples limit with stratified sampling
+            # Apply max samples with stratification
             if self.max_samples and len(self.data) > self.max_samples:
                 self.data = self._stratified_sample(self.data, self.max_samples)
             
             self.logger.info(f"Loaded {len(self.data)} samples for split: {self.split}")
-            
+        
         except Exception as e:
             self.logger.error(f"Failed to load Headlines dataset: {e}")
             raise
     
     def _create_split(self, all_samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Create train/val/test split."""
-        
-        # Shuffle all samples
         np.random.shuffle(all_samples)
         
-        # Split: 80% train, 10% val, 10% test
         n_samples = len(all_samples)
-        
         if self.split == "train":
             return all_samples[:int(0.8 * n_samples)]
         elif self.split == "val":
@@ -136,8 +124,7 @@ class HeadlinesDataset(Dataset):
             return all_samples
     
     def _stratified_sample(self, data: List[Dict[str, Any]], n_samples: int) -> List[Dict[str, Any]]:
-        """Perform stratified sampling to maintain class balance."""
-        
+        """Stratified sampling to maintain class balance."""
         sarcastic = [s for s in data if s['label'] == 1]
         non_sarcastic = [s for s in data if s['label'] == 0]
         
@@ -153,13 +140,9 @@ class HeadlinesDataset(Dataset):
         return sampled
     
     def __len__(self) -> int:
-        """Get dataset length."""
         return len(self.data)
     
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        """Get dataset item."""
-        
-        # Check cache
         if self.cache_data and idx in self.cache:
             return self.cache[idx]
         
@@ -169,11 +152,9 @@ class HeadlinesDataset(Dataset):
         text_tokens = None
         if sample['text']:
             processed_text = self.processors['text'].preprocess_text(
-                sample['text'], 
+                sample['text'],
                 task="sarcasm_detection"
             )
-            
-            # Tokenize
             tokenized = self.processors['text'].tokenize(
                 processed_text,
                 padding=False,
@@ -182,13 +163,12 @@ class HeadlinesDataset(Dataset):
             )
             text_tokens = {k: v.squeeze(0) for k, v in tokenized.items()}
         
-        # Create final sample
         final_sample = {
             'id': sample['id'],
             'text': text_tokens,
-            'audio': None,  # Headlines are text-only
-            'video': None,  # Headlines are text-only
-            'image': None,  # Headlines are text-only
+            'audio': None,
+            'video': None,
+            'image': None,
             'label': torch.tensor(sample['label'], dtype=torch.long),
             'metadata': {
                 'dataset': sample['dataset'],
@@ -197,15 +177,12 @@ class HeadlinesDataset(Dataset):
             }
         }
         
-        # Cache if enabled
         if self.cache_data:
             self.cache[idx] = final_sample
         
         return final_sample
     
     def get_statistics(self) -> Dict[str, Any]:
-        """Get dataset statistics."""
-        
         labels = [sample['label'] for sample in self.data]
         
         return {

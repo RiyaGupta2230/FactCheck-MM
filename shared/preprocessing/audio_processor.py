@@ -57,10 +57,8 @@ class AudioProcessor:
         self.apply_vad = apply_vad
         self.vad_aggressiveness = vad_aggressiveness
         self.noise_reduction = noise_reduction
-        
         self.logger = get_logger("AudioProcessor")
         
-        # Initialize Wav2Vec2 processor
         try:
             self.wav2vec_processor = Wav2Vec2Processor.from_pretrained(
                 model_name,
@@ -71,7 +69,6 @@ class AudioProcessor:
             self.logger.error(f"Failed to load Wav2Vec2 processor: {e}")
             raise
         
-        # Initialize VAD if needed
         if apply_vad:
             try:
                 self.vad = webrtcvad.Vad(vad_aggressiveness)
@@ -80,8 +77,7 @@ class AudioProcessor:
                 self.logger.warning(f"Failed to initialize VAD: {e}")
                 self.apply_vad = False
         
-        # Audio processing parameters
-        self.frame_duration_ms = 30  # Frame duration for VAD
+        self.frame_duration_ms = 30
         self.frame_size = int(sample_rate * self.frame_duration_ms / 1000)
         
         self.logger.info("Audio processor initialized successfully")
@@ -106,14 +102,14 @@ class AudioProcessor:
         try:
             audio, sr = librosa.load(
                 audio_path,
-                sr=None,  # Keep original sample rate initially
+                sr=None,
                 offset=offset,
                 duration=duration
             )
             
             self.logger.debug(f"Loaded audio: {audio_path} (sr={sr}, length={len(audio)})")
             return audio, sr
-            
+        
         except Exception as e:
             self.logger.error(f"Failed to load audio {audio_path}: {e}")
             raise
@@ -157,12 +153,10 @@ class AudioProcessor:
         if len(audio) == 0:
             return audio
         
-        # RMS normalization
         rms = np.sqrt(np.mean(audio**2))
         if rms > 0:
-            audio = audio / rms * 0.1  # Normalize to reasonable level
+            audio = audio / rms * 0.1
         
-        # Clip to [-1, 1]
         audio = np.clip(audio, -1.0, 1.0)
         
         return audio
@@ -186,28 +180,24 @@ class AudioProcessor:
         Returns:
             Audio with silence removed
         """
-        # Compute energy
         energy = librosa.feature.rms(
             y=audio,
             frame_length=frame_length,
             hop_length=hop_length
         )[0]
         
-        # Find non-silent frames
         non_silent = energy > threshold
         
         if not np.any(non_silent):
             self.logger.warning("All audio detected as silence")
             return audio
         
-        # Convert frame indices to sample indices
         times = librosa.frames_to_time(
             np.arange(len(energy)),
             sr=self.sample_rate,
             hop_length=hop_length
         )
         
-        # Create mask for samples
         mask = np.zeros(len(audio), dtype=bool)
         for i, is_speech in enumerate(non_silent):
             if is_speech:
@@ -231,10 +221,8 @@ class AudioProcessor:
         if not self.apply_vad or self.vad is None:
             return audio
         
-        # Convert to 16-bit PCM for VAD
         pcm_data = (audio * 32767).astype(np.int16)
         
-        # Process in frames
         voiced_frames = []
         frame_size = self.frame_size
         
@@ -242,26 +230,23 @@ class AudioProcessor:
             end = min(start + frame_size, len(pcm_data))
             frame = pcm_data[start:end]
             
-            # Pad frame if necessary
             if len(frame) < frame_size:
                 frame = np.pad(frame, (0, frame_size - len(frame)))
             
-            # Apply VAD
             try:
                 is_speech = self.vad.is_speech(frame.tobytes(), self.sample_rate)
                 if is_speech:
                     voiced_frames.extend(range(start, end))
             except Exception as e:
                 self.logger.debug(f"VAD failed for frame: {e}")
-                # Include frame if VAD fails
                 voiced_frames.extend(range(start, end))
         
         if not voiced_frames:
             self.logger.warning("VAD detected no speech")
             return audio
         
-        # Extract voiced audio
         voiced_audio = audio[voiced_frames]
+        
         return voiced_audio
     
     def apply_noise_reduction(self, audio: np.ndarray) -> np.ndarray:
@@ -278,28 +263,23 @@ class AudioProcessor:
             return audio
         
         try:
-            # Compute STFT
             stft = librosa.stft(audio)
             magnitude = np.abs(stft)
             phase = np.angle(stft)
             
-            # Estimate noise from first 0.5 seconds
-            noise_frames = int(0.5 * self.sample_rate / 512)  # hop_length=512
+            noise_frames = int(0.5 * self.sample_rate / 512)
             noise_magnitude = np.mean(magnitude[:, :noise_frames], axis=1, keepdims=True)
             
-            # Spectral subtraction
-            alpha = 2.0  # Over-subtraction factor
-            beta = 0.01  # Lower bound factor
-            
+            alpha = 2.0
+            beta = 0.01
             clean_magnitude = magnitude - alpha * noise_magnitude
             clean_magnitude = np.maximum(clean_magnitude, beta * magnitude)
             
-            # Reconstruct audio
             clean_stft = clean_magnitude * np.exp(1j * phase)
             clean_audio = librosa.istft(clean_stft)
             
             return clean_audio
-            
+        
         except Exception as e:
             self.logger.debug(f"Noise reduction failed: {e}")
             return audio
@@ -328,11 +308,9 @@ class AudioProcessor:
         current_length = len(audio)
         
         if current_length > target_length:
-            # Truncate from center
             start = (current_length - target_length) // 2
             audio = audio[start:start + target_length]
         elif current_length < target_length:
-            # Pad with zeros
             padding = target_length - current_length
             pad_before = padding // 2
             pad_after = padding - pad_before
@@ -352,26 +330,21 @@ class AudioProcessor:
         """
         features = {}
         
-        # Basic features
         features['rms_energy'] = librosa.feature.rms(y=audio)[0]
         features['zero_crossing_rate'] = librosa.feature.zero_crossing_rate(audio)[0]
         
-        # Spectral features
         features['spectral_centroid'] = librosa.feature.spectral_centroid(y=audio, sr=self.sample_rate)[0]
         features['spectral_rolloff'] = librosa.feature.spectral_rolloff(y=audio, sr=self.sample_rate)[0]
         features['spectral_bandwidth'] = librosa.feature.spectral_bandwidth(y=audio, sr=self.sample_rate)[0]
         
-        # MFCC features
         features['mfcc'] = librosa.feature.mfcc(
             y=audio,
             sr=self.sample_rate,
             n_mfcc=13
         )
         
-        # Chroma features
         features['chroma'] = librosa.feature.chroma_stft(y=audio, sr=self.sample_rate)
         
-        # Temporal features (for sarcasm detection)
         features['tempo'] = librosa.beat.tempo(y=audio, sr=self.sample_rate)
         
         return features
@@ -393,35 +366,28 @@ class AudioProcessor:
         Returns:
             Dictionary with processed audio and metadata
         """
-        # Load audio if path provided
         if isinstance(audio, (str, Path)):
             audio_data, orig_sr = self.load_audio(audio)
         else:
             audio_data = audio
             orig_sr = sample_rate or self.sample_rate
         
-        # Resample
         audio_data = self.resample_audio(audio_data, orig_sr, self.sample_rate)
         
-        # Apply noise reduction
         if self.noise_reduction:
             audio_data = self.apply_noise_reduction(audio_data)
         
-        # Remove silence
         if self.remove_silence:
             if self.apply_vad:
                 audio_data = self.apply_vad_processing(audio_data)
             else:
                 audio_data = self.remove_silence_simple(audio_data)
         
-        # Normalize
         if self.normalize:
             audio_data = self.normalize_audio(audio_data)
         
-        # Pad or truncate
         audio_data = self.pad_or_truncate(audio_data)
         
-        # Prepare result
         result = {
             'audio': audio_data,
             'sample_rate': self.sample_rate,
@@ -429,7 +395,6 @@ class AudioProcessor:
             'length_samples': len(audio_data)
         }
         
-        # Extract features if requested
         if return_features:
             result['features'] = self.extract_features(audio_data)
         
@@ -450,11 +415,9 @@ class AudioProcessor:
         Returns:
             Wav2Vec2 processor output
         """
-        # Process audio
         processed = self.process_audio(audio, sample_rate)
         audio_data = processed['audio']
         
-        # Use Wav2Vec2 processor
         inputs = self.wav2vec_processor(
             audio_data,
             sampling_rate=self.sample_rate,
@@ -486,7 +449,6 @@ class AudioProcessor:
             processed = self.process_audio(audio, sr)
             processed_audio.append(processed['audio'])
         
-        # Use Wav2Vec2 processor for batching
         inputs = self.wav2vec_processor(
             processed_audio,
             sampling_rate=self.sample_rate,

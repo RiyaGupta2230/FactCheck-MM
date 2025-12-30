@@ -349,7 +349,7 @@ class PostProcessor:
             elif word.lower() in {'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
                                   'january', 'february', 'march', 'april', 'may', 'june',
                                   'july', 'august', 'september', 'october', 'november', 'december',
-                                  'python', 'java', 'javascript', 'english', 'spanish', 'french'}:
+                                  'python', 'java', 'javascript', 'english', 'french'}:
                 truecased_words.append(word.capitalize())
             
             # Acronyms (all caps, length <= 5)

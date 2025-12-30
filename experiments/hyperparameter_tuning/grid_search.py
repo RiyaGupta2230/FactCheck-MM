@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+
 """
 Grid Search Hyperparameter Tuning for FactCheck-MM
-
 Manual grid search implementation with comprehensive logging and visualization.
 Supports systematic exploration of hyperparameter combinations.
 """
@@ -24,7 +24,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from shared.utils.logging_utils import get_logger, setup_logging
 from shared.utils.metrics import MetricsComputer
-
 
 @dataclass
 class GridSearchConfig:
@@ -63,7 +62,6 @@ class GridSearchConfig:
     max_combinations: Optional[int] = None  # Limit total combinations
     random_sample: bool = False  # If True, randomly sample from grid
     random_seed: int = 42
-
 
 class GridSearchTuner:
     """Grid search hyperparameter tuner for FactCheck-MM models."""
@@ -129,12 +127,10 @@ class GridSearchTuner:
                 device = "cpu"
         else:
             device = self.config.device
-        
         return device
     
     def _generate_parameter_combinations(self) -> List[Dict[str, Any]]:
         """Generate all parameter combinations for grid search."""
-        
         # Base parameters that always exist
         base_params = {
             'learning_rate': self.config.learning_rates,
@@ -182,9 +178,7 @@ class GridSearchTuner:
     
     def search(self) -> Dict[str, Any]:
         """Run grid search optimization."""
-        
         self.logger.info(f"Starting grid search with {len(self.parameter_combinations)} combinations")
-        
         start_time = time.time()
         
         for idx, params in enumerate(self.parameter_combinations):
@@ -200,6 +194,7 @@ class GridSearchTuner:
                 
                 # Update best result
                 current_metric = result.get(self.config.metric_name, 0.0)
+                
                 if self._is_better_result(current_metric):
                     self.best_result = result
                     self.best_config = params.copy()
@@ -266,7 +261,6 @@ class GridSearchTuner:
     
     def _train_and_evaluate(self, params: Dict[str, Any], combination_idx: int) -> Dict[str, Any]:
         """Train and evaluate model with given parameters."""
-        
         combination_start_time = time.time()
         
         # Create model
@@ -362,10 +356,9 @@ class GridSearchTuner:
         return result
     
     def _train_epoch(self, model: nn.Module, optimizer: torch.optim.Optimizer,
-                    scheduler: torch.optim.lr_scheduler._LRScheduler, epoch: int,
-                    params: Dict[str, Any]) -> Dict[str, float]:
+                     scheduler: torch.optim.lr_scheduler._LRScheduler, epoch: int,
+                     params: Dict[str, Any]) -> Dict[str, float]:
         """Train for one epoch."""
-        
         total_loss = 0.0
         num_batches = 0
         
@@ -411,7 +404,6 @@ class GridSearchTuner:
     def _evaluate_epoch(self, model: nn.Module, split: str, epoch: int,
                        params: Dict[str, Any]) -> Dict[str, float]:
         """Evaluate for one epoch."""
-        
         all_predictions = []
         all_labels = []
         total_loss = 0.0
@@ -461,7 +453,6 @@ class GridSearchTuner:
     
     def _log_to_tensorboard(self, result: Dict[str, Any], combination_idx: int):
         """Log results to TensorBoard."""
-        
         if not self.writer:
             return
         
@@ -470,8 +461,8 @@ class GridSearchTuner:
         self.writer.add_scalar(f'GridSearch/{self.config.metric_name}', main_metric, combination_idx)
         
         # Log parameters as text
-        param_text = "\n".join([f"{k}: {v}" for k, v in result.items() 
-                               if k in ['learning_rate', 'batch_size', 'hidden_dim', 'dropout_rate']])
+        param_text = "\n".join([f"{k}: {v}" for k, v in result.items()
+                                if k in ['learning_rate', 'batch_size', 'hidden_dim', 'dropout_rate']])
         self.writer.add_text(f'GridSearch/Parameters_{combination_idx}', param_text, combination_idx)
         
         # Log training history if available
@@ -486,7 +477,6 @@ class GridSearchTuner:
     
     def _save_results(self, results: Dict[str, Any]):
         """Save grid search results."""
-        
         # Save main results
         results_file = self.output_dir / "grid_search_results.json"
         with open(results_file, 'w') as f:
@@ -511,7 +501,6 @@ class GridSearchTuner:
     
     def _create_results_summary(self, results: Dict[str, Any]) -> str:
         """Create a human-readable summary of results."""
-        
         lines = []
         lines.append("=" * 60)
         lines.append("FACTCHECK-MM GRID SEARCH RESULTS SUMMARY")
@@ -530,11 +519,9 @@ class GridSearchTuner:
             lines.append("BEST CONFIGURATION:")
             lines.append("-" * 30)
             best = results['best_result']
-            
             for key in ['learning_rate', 'batch_size', 'hidden_dim', 'dropout_rate', 'fusion_strategy']:
                 if key in best:
                     lines.append(f"{key}: {best[key]}")
-            
             lines.append("")
             lines.append(f"Best {self.config.metric_name}: {best.get(self.config.metric_name, 'N/A'):.4f}")
             lines.append(f"Training time: {best.get('training_time', 'N/A'):.2f}s")
@@ -557,13 +544,12 @@ class GridSearchTuner:
             lines.append(f"   LR: {result.get('learning_rate', 'N/A')}, "
                         f"BS: {result.get('batch_size', 'N/A')}, "
                         f"HD: {result.get('hidden_dim', 'N/A')}")
-            lines.append("")
         
+        lines.append("")
         return "\n".join(lines)
     
     def _create_results_visualization(self, results: Dict[str, Any]):
         """Create visualization of grid search results."""
-        
         try:
             import matplotlib.pyplot as plt
             import numpy as np
@@ -588,7 +574,6 @@ class GridSearchTuner:
             
             # Plot 2: Metric vs Batch Size
             batch_sizes = [r.get('batch_size', 0) for r in valid_results]
-            
             axes[0, 1].scatter(batch_sizes, metrics, alpha=0.6)
             axes[0, 1].set_xlabel('Batch Size')
             axes[0, 1].set_ylabel(self.config.metric_name)
@@ -597,7 +582,6 @@ class GridSearchTuner:
             
             # Plot 3: Metric vs Hidden Dimension
             hidden_dims = [r.get('hidden_dim', 0) for r in valid_results]
-            
             axes[1, 0].scatter(hidden_dims, metrics, alpha=0.6)
             axes[1, 0].set_xlabel('Hidden Dimension')
             axes[1, 0].set_ylabel(self.config.metric_name)
@@ -606,7 +590,6 @@ class GridSearchTuner:
             
             # Plot 4: Training Time vs Metric
             training_times = [r.get('training_time', 0) for r in valid_results]
-            
             axes[1, 1].scatter(training_times, metrics, alpha=0.6)
             axes[1, 1].set_xlabel('Training Time (s)')
             axes[1, 1].set_ylabel(self.config.metric_name)
@@ -621,7 +604,7 @@ class GridSearchTuner:
             plt.close()
             
             self.logger.info(f"Results visualization saved to: {plot_file}")
-            
+        
         except ImportError:
             self.logger.warning("Matplotlib not available - skipping visualization")
         except Exception as e:
@@ -639,9 +622,7 @@ class GridSearchTuner:
             key=lambda x: x.get(self.config.metric_name, float('-inf')),
             reverse=(self.config.direction == "maximize")
         )
-        
         return sorted_results[:k]
-
 
 def main():
     """Example usage of grid search hyperparameter tuning."""
@@ -649,7 +630,6 @@ def main():
     # Example model factory
     def create_sarcasm_model(params):
         from sarcasm_detection.models import MultimodalSarcasmModel
-        
         model_config = {
             'modalities': ['text', 'audio', 'image'],
             'fusion_strategy': params.get('fusion_strategy', 'cross_modal_attention'),
@@ -660,7 +640,6 @@ def main():
             'num_classes': 2,
             'dropout_rate': params['dropout_rate']
         }
-        
         return MultimodalSarcasmModel(model_config)
     
     # Example data loaders
@@ -698,7 +677,6 @@ def main():
     
     print("Grid search completed!")
     print(f"Best configuration: {tuner.get_best_config()}")
-
 
 if __name__ == "__main__":
     main()
