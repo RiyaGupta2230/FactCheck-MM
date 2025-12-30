@@ -30,7 +30,7 @@ except ImportError:
 
 from shared.utils.logging_utils import get_logger, setup_logging
 from shared.utils.metrics import MetricsComputer
-from config.training_configs import get_base_training_config
+from Config.training_configs import get_base_training_config
 
 @dataclass
 class OptunaConfig:

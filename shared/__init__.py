@@ -35,7 +35,8 @@ from .datasets import (
     BaseDataset,
     MultimodalDataset,
     create_dataloader,
-    ChunkedDataLoader
+    ChunkedDataLoader,
+    create_hardware_aware_dataloader
 )
 
 __version__ = "1.0.0"
@@ -69,10 +70,11 @@ __all__ = [
     "BaseDataset",
     "MultimodalDataset",
     "create_dataloader",
-    "ChunkedDataLoader"
+    "ChunkedDataLoader",
+    "create_hardware_aware_dataloader"
 ]
 
 def get_shared_config():
     """Get default shared configuration."""
-    from config import get_config
+    from Config import get_config
     return get_config()["base"]

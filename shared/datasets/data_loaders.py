@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, Dataset, Sampler, WeightedRandomSampler
 from torch.nn.utils.rnn import pad_sequence
 import gc
 
-from .multimodal_dataset import MultimodalDataset, ChunkedDataset
+from .multimodal_dataset import MultimodalDataset
 from ..utils import get_logger
 
 
@@ -409,14 +409,14 @@ class ChunkedDataLoader:
         self.sampler = sampler
         self.logger = get_logger("ChunkedDataLoader")
         
-        self.chunked_dataset = ChunkedDataset(
-            dataset,
-            chunk_size=chunk_size,
-            shuffle_chunks=self.shuffle
-        )
+        # self.chunked_dataset = ChunkedDataset(
+        #     dataset,
+        #     chunk_size=chunk_size,
+        #     shuffle_chunks=self.shuffle
+        # )
         
-        self.current_chunk_idx = 0
-        self.current_dataloader = None
+        # self.current_chunk_idx = 0
+        # self.current_dataloader = None
         
         self.logger.info(
             f"Initialized chunked dataloader: {len(dataset)} samples, "
@@ -454,28 +454,37 @@ class ChunkedDataLoader:
         )
     
     def __iter__(self):
-        """Iterate over chunks and batches."""
-        for chunk_idx, chunk_data in self.chunked_dataset:
+        dataset_size = len(self.dataset)
+        indices = list(range(dataset_size))
+
+        if self.shuffle:
+            np.random.shuffle(indices)
+
+        for start in range(0, dataset_size, self.chunk_size):
+            end = min(start + self.chunk_size, dataset_size)
+            chunk_indices = indices[start:end]
+            chunk_data = [self.dataset[i] for i in chunk_indices]
+
             if not self._check_memory():
                 self.logger.warning("Memory limit reached, forcing garbage collection")
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-            
+
             chunk_dataloader = self._create_chunk_dataloader(chunk_data)
-            self.logger.debug(f"Processing chunk {chunk_idx}/{self.chunked_dataset.num_chunks}")
-            
+
             for batch in chunk_dataloader:
                 yield batch
-            
+
             del chunk_dataloader, chunk_data
             gc.collect()
+
     
     def __len__(self) -> int:
         """Get total number of batches."""
         total_samples = len(self.dataset)
-        batches_per_chunk = (self.chunk_size + self.batch_size - 1) // self.batch_size
-        return self.chunked_dataset.num_chunks * batches_per_chunk
+        return (total_samples + self.batch_size - 1) // self.batch_size
+
 
 
 def create_dataloader(

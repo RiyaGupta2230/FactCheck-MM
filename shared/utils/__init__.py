@@ -8,7 +8,8 @@ from .logging_utils import (
     get_logger,
     log_system_info,
     TensorBoardLogger,
-    WandBLogger
+    WandBLogger,
+    ExperimentLogger
 )
 
 from .checkpoint_manager import (

@@ -14,11 +14,12 @@ from transformers import (
 )
 import numpy as np
 
-from shared.base_model import BaseModel
+from shared.base_model import BaseMultimodalModel
+
 from shared.utils import get_logger
 
 
-class TextSarcasmModel(BaseModel):
+class TextSarcasmModel(BaseMultimodalModel):
     """Abstract base class for text-based sarcasm detection models."""
     
     def __init__(

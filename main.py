@@ -15,7 +15,7 @@ import torch
 project_root = Path(__file__).parent.absolute()
 sys.path.insert(0, str(project_root))
 
-from config import get_config
+from Config import get_config
 from shared.utils import setup_logging, get_logger
 from shared import MultimodalEncoder
 

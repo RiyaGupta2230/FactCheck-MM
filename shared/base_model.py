@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 
 from .utils import get_logger, CheckpointManager, MetricsComputer
-from config import BaseConfig
+from Config.base_config import BaseConfig
 
 
 class BaseMultimodalModel(nn.Module, ABC):

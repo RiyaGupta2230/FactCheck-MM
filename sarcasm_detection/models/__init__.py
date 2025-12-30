@@ -21,7 +21,8 @@ from .fusion_strategies import (
 from .ensemble_model import (
     EnsembleSarcasmModel,
     VotingEnsemble,
-    WeightedEnsemble
+    WeightedEnsemble,
+    StackingEnsemble
 )
 
 __all__ = [
@@ -42,6 +43,7 @@ __all__ = [
     # Ensemble models
     "EnsembleSarcasmModel",
     "VotingEnsemble",
+    "StackingEnsemble",
     "WeightedEnsemble"
 ]
 

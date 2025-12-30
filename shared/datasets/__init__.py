@@ -2,6 +2,9 @@
 FactCheck-MM Dataset Components
 Unified dataset loaders for multimodal fact-checking pipeline.
 """
+from typing import List, Dict, Any, Optional, Union, Tuple
+from pathlib import Path
+
 
 from .base_dataset import BaseDataset, DatasetConfig
 from .multimodal_dataset import (
@@ -15,7 +18,7 @@ from .data_loaders import (
     ChunkedDataLoader,
     MultimodalCollator,
     create_chunked_dataloader,
-    get_optimal_batch_size
+    create_hardware_aware_dataloader
 )
 
 __all__ = [
@@ -34,7 +37,7 @@ __all__ = [
     "ChunkedDataLoader",
     "MultimodalCollator",
     "create_chunked_dataloader",
-    "get_optimal_batch_size"
+    "create_hardware_aware_dataloader"
 ]
 
 def create_dataset(

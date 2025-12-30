@@ -16,7 +16,7 @@ from dataclasses import dataclass
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.utils.logging_utils import get_logger, setup_logging
-from config.base_config import BaseConfig
+from Config.base_config import BaseConfig
 
 
 @dataclass

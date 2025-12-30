@@ -50,7 +50,7 @@ except ImportError:
 
 # Import base config if available
 try:
-    from config.base_config import BaseConfig
+    from Config.base_config import BaseConfig
     CONFIG_AVAILABLE = True
 except ImportError:
     CONFIG_AVAILABLE = False

@@ -11,13 +11,14 @@ from typing import Dict, List, Any, Optional, Union, Tuple
 from pathlib import Path
 import numpy as np
 
-from shared.base_model import BaseModel
+from shared.base_model import BaseMultimodalModel
+
 from shared.utils import get_logger
 from .text_sarcasm_model import RobertaSarcasmModel, LSTMSarcasmModel
 from .multimodal_sarcasm import MultimodalSarcasmModel
 
 
-class EnsembleSarcasmModel(BaseModel):
+class EnsembleSarcasmModel(BaseMultimodalModel):
     """Base class for ensemble sarcasm detection models."""
     
     def __init__(

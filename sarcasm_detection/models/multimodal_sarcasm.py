@@ -10,14 +10,15 @@ import torch.nn.functional as F
 from typing import Dict, Any, Optional, List, Union
 import numpy as np
 
-from shared.base_model import BaseModel
+from shared.base_model import BaseMultimodalModel
+
 from shared.multimodal_encoder import MultimodalEncoder
 from shared.fusion_layers import FusionLayerFactory
 from .fusion_strategies import FusionFactory
 from shared.utils import get_logger
 
 
-class MultimodalSarcasmModel(BaseModel):
+class MultimodalSarcasmModel(BaseMultimodalModel):
     """
     Multimodal sarcasm detection model combining text, audio, image, and video modalities.
     """

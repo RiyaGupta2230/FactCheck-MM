@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from shared.utils.logging_utils import get_logger, setup_logging
 from shared.utils.checkpoint_manager import CheckpointManager
-from config.model_config import ModelConfig
+from Config.model_config import ModelConfig
 
 
 class ModelExporter:

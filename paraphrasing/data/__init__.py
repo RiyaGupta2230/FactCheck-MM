@@ -8,7 +8,7 @@ Research-grade implementations with strict PDF compliance.
 from .paranmt_loader import ParaNMTDataset, ParaNMTConfig
 from .mrpc_loader import MRPCDataset, MRPCConfig
 from .quora_loader import QuoraDataset, QuoraConfig
-from .unified_loader import UnifiedParaphraseDataset, UnifiedParaphraseConfig
+from .unified_loader import UnifiedParaphraseDataset, UnifiedParaphraseConfig, create_unified_dataloader
 
 __all__ = [
     'ParaNMTDataset',
@@ -18,5 +18,6 @@ __all__ = [
     'QuoraDataset',
     'QuoraConfig',
     'UnifiedParaphraseDataset',
-    'UnifiedParaphraseConfig'
+    'UnifiedParaphraseConfig',
+    'create_unified_dataloader'
 ]
