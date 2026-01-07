@@ -75,7 +75,8 @@ class RetrievalTrainer:
         
         # Initialize checkpoint manager
         self.checkpoint_manager = CheckpointManager(
-            checkpoint_dir=Path(args.checkpoint_dir),
+            checkpoint_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else Path("fact_verification/checkpoints"),
+            save_dir=checkpoint_dir,
             max_checkpoints=args.max_checkpoints
         )
         

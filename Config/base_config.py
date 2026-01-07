@@ -26,7 +26,6 @@ class BaseConfig:
     # Paths
     root_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent)
     data_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data")
-    checkpoint_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "checkpoints")
     logs_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "logs")
     output_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "outputs")
     
@@ -72,7 +71,7 @@ class BaseConfig:
     
     def _setup_directories(self):
         """Create necessary directories."""
-        for directory in [self.checkpoint_dir, self.logs_dir, self.output_dir]:
+        for directory in [self.logs_dir, self.output_dir]:
             directory.mkdir(parents=True, exist_ok=True)
     
     def _setup_device(self):

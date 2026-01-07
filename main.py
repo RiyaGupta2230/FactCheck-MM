@@ -18,6 +18,7 @@ sys.path.insert(0, str(project_root))
 from Config import get_config
 from shared.utils import setup_logging, get_logger
 from shared import MultimodalEncoder
+from sarcasm_detection.models import create_sarcasm_model
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -240,21 +241,31 @@ def cmd_train(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     # Import task-specific trainers
     if args.task == "sarcasm_detection":
         from sarcasm_detection.training import train_multimodal
-        trainer = train_multimodal.MultimodalSarcasmTrainer(config)
+        
     elif args.task == "paraphrasing":
         from paraphrasing.training import train_generation
-        trainer = train_generation.ParaphraseTrainer(config)
+        trainer = train_generation.GenerationTrainer(config)
     elif args.task == "fact_verification":
         from fact_verification.training import train_end_to_end
-        trainer = train_end_to_end.FactVerificationTrainer(config)
+        trainer = train_end_to_end.EndToEndTrainer(config)
     elif args.task == "multitask":
         from experiments.multitask_learning import joint_trainer
-        trainer = joint_trainer.MultiTaskTrainer(config)
+        trainer = joint_trainer.MultitaskTrainer(config)
     else:
         raise ValueError(f"Unknown task: {args.task}")
     
     # Override config with CLI arguments
     training_config = config["training"].get_config_for_task(args.task)
+    model = create_sarcasm_model(
+        "multimodal",
+        config["models"].sarcasm_detection
+    )
+
+    trainer = train_multimodal.MultimodalSarcasmTrainer(
+        model,
+        training_config
+    )
+
     
     if args.epochs:
         training_config.num_epochs = args.epochs
@@ -275,9 +286,10 @@ def cmd_train(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     # Start training
     try:
         trainer.train(
-            datasets=args.datasets,
+            checkpoint_dir=Path("checkpoints") / args.task,
             resume_from_checkpoint=args.resume
         )
+
         logger.info("✅ Training completed successfully")
     except Exception as e:
         logger.error(f"❌ Training failed: {e}")

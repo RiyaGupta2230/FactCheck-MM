@@ -59,7 +59,6 @@ class BaseMultimodalModel(nn.Module, ABC):
         
         # Initialize checkpoint manager
         self.checkpoint_manager = CheckpointManager(
-            save_dir=config.checkpoint_dir / model_name,
             max_checkpoints=5
         )
         
@@ -405,35 +404,47 @@ class BaseMultimodalModel(nn.Module, ABC):
         scheduler_state: Optional[Dict] = None,
         metadata: Optional[Dict] = None
     ) -> None:
-        """
-        Save model checkpoint.
+        """Save model checkpoint with comprehensive metadata."""
         
-        Args:
-            filepath: Path to save checkpoint
-            epoch: Current epoch
-            optimizer_state: Optimizer state dict
-            scheduler_state: Scheduler state dict
-            metadata: Additional metadata
-        """
         checkpoint = {
+            # Model state
             "model_state_dict": self.state_dict(),
-            "epoch": epoch,
             "model_name": self.model_name,
             "task_name": self.task_name,
-            "config": self.config.to_dict(),
+            "num_classes": self.num_classes,
+            "supported_modalities": self.supported_modalities,
+            
+            # Training state
+            "epoch": epoch,
+            "training_step_count": self.training_step_count,
+            
+            # Config (CRITICAL for reconstruction)
+            "config": self.config.to_dict() if hasattr(self.config, 'to_dict') else self.config.__dict__,
+            
+            # Optimizer/Scheduler (for training resumption)
+            "optimizer_state_dict": optimizer_state,
+            "scheduler_state_dict": scheduler_state,
+            
+            # Model architecture info
             "model_size": self.get_model_size(),
-            "training_step_count": self.training_step_count
+            "model_class": self.__class__.__name__,
+            "model_module": self.__class__.__module__,
+            
+            # Reproducibility
+            "torch_version": torch.__version__,
+            "python_version": sys.version,
+            "random_seed": getattr(self.config, 'seed', None),
+            
+            # Custom metadata
+            "metadata": metadata or {}
         }
         
-        if optimizer_state:
-            checkpoint["optimizer_state_dict"] = optimizer_state
-        if scheduler_state:
-            checkpoint["scheduler_state_dict"] = scheduler_state
-        if metadata:
-            checkpoint["metadata"] = metadata
+        # Validate checkpoint before saving
+        self._validate_checkpoint(checkpoint)
         
         self.checkpoint_manager.save_checkpoint(checkpoint, filepath)
         self.logger.info(f"Saved checkpoint to {filepath}")
+
     
     def load_checkpoint(
         self,
@@ -491,3 +502,500 @@ class BaseMultimodalModel(nn.Module, ABC):
             f"  trainable={size_info['trainable_parameters']:,}\n"
             f")"
         )
+
+        # ==================== INFERENCE API METHODS ====================
+    
+    @classmethod
+    def from_checkpoint(
+        cls,
+        checkpoint_path: Union[str, Path],
+        device: Optional[str] = None,
+        strict: bool = True,
+        config_override: Optional[Dict] = None
+    ) -> 'BaseMultimodalModel':
+        """
+        Load model from checkpoint for INFERENCE ONLY.
+        For training resumption, use Trainer.from_checkpoint().
+        
+        Args:
+            checkpoint_path: Path to checkpoint file
+            device: Device to load model on (None = auto-detect)
+            strict: Strict state_dict loading
+            config_override: Override saved config values
+            
+        Returns:
+            Model instance in eval mode
+        """
+        checkpoint_path = Path(checkpoint_path)
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        
+        logger = get_logger(f"{cls.__name__}.from_checkpoint")
+        
+        # Load checkpoint
+        logger.info(f"Loading checkpoint from {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        
+        # Validate checkpoint structure
+        cls._validate_checkpoint_structure(checkpoint)
+        
+        # Auto-detect device
+        if device is None:
+            if torch.cuda.is_available():
+                device = 'cuda'
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device = 'mps'
+            else:
+                device = 'cpu'
+        
+        # Reconstruct config
+        config_dict = checkpoint['config']
+        if config_override:
+            config_dict.update(config_override)
+        
+        # CRITICAL: Subclass must provide config reconstruction
+        if hasattr(cls, '_config_class'):
+            config = cls._config_class.from_dict(config_dict)
+        else:
+            # Fallback: use dict directly
+            from types import SimpleNamespace
+            config = SimpleNamespace(**config_dict)
+        
+        # Create model instance
+        # Subclass constructors MUST accept these kwargs
+        model = cls(
+            config=config,
+            model_name=checkpoint['model_name'],
+            task_name=checkpoint['task_name'],
+            num_classes=checkpoint['num_classes'],
+            supported_modalities=checkpoint['supported_modalities']
+        )
+        
+        # Load state dict
+        model.load_state_dict(checkpoint['model_state_dict'], strict=strict)
+        
+        # Move to device and set eval mode
+        model = model.to(device)
+        model.eval()
+        
+        # Log info
+        logger.info(f"✅ Loaded {checkpoint['model_class']} from epoch {checkpoint['epoch']}")
+        logger.info(f"   Device: {device}")
+        logger.info(f"   Parameters: {checkpoint['model_size']['total_parameters']:,}")
+        logger.info(f"   PyTorch: {checkpoint.get('torch_version', 'unknown')}")
+        
+        return model
+
+@staticmethod
+def _validate_checkpoint_structure(checkpoint: Dict) -> None:
+    """Validate checkpoint has required fields."""
+    required_fields = [
+        'model_state_dict', 'model_name', 'task_name', 
+        'config', 'num_classes', 'supported_modalities'
+    ]
+    missing = [f for f in required_fields if f not in checkpoint]
+    if missing:
+        raise ValueError(f"Invalid checkpoint: missing fields {missing}")
+
+    
+    def predict_text(
+        self,
+        text_input: Union[str, List[str]],
+        return_probabilities: bool = True,
+        return_raw_outputs: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Run inference on text input(s).
+        
+        Args:
+            text_input: Single text string or list of text strings
+            return_probabilities: Whether to return class probabilities
+            return_raw_outputs: Whether to return raw model outputs (logits, hidden states)
+            
+        Returns:
+            Dictionary containing:
+                - predictions: Predicted class indices or generated text
+                - probabilities: Class probabilities (if return_probabilities=True)
+                - labels: Human-readable label names (if available)
+                - raw_outputs: Raw model outputs (if return_raw_outputs=True)
+                
+        Example:
+            >>> model = MultimodalSarcasmModel.from_checkpoint('model.pt')
+            >>> result = model.predict_text("This is totally not sarcastic at all!")
+            >>> print(result['predictions'])  # 1 (sarcastic)
+            >>> print(result['probabilities'])  # [0.15, 0.85]
+        """
+        self.eval()
+        
+        # Convert single string to list
+        is_single = isinstance(text_input, str)
+        if is_single:
+            text_input = [text_input]
+        
+        # Check if model has a text processor/tokenizer
+        if hasattr(self, 'text_processor'):
+            processor = self.text_processor
+        elif hasattr(self, 'tokenizer'):
+            processor = self.tokenizer
+        else:
+            raise AttributeError(
+                "Model must have 'text_processor' or 'tokenizer' attribute for text inference. "
+                "Please set this attribute during model initialization."
+            )
+        
+        # Tokenize inputs
+        try:
+            if hasattr(processor, 'process_text'):
+                # Custom TextProcessor
+                encoded = processor.process_text(
+                    text_input,
+                    padding=True,
+                    truncation=True,
+                    return_tensors='pt'
+                )
+            else:
+                # HuggingFace tokenizer
+                encoded = processor(
+                    text_input,
+                    padding=True,
+                    truncation=True,
+                    return_tensors='pt',
+                    max_length=512
+                )
+        except Exception as e:
+            raise RuntimeError(f"Failed to tokenize input: {e}")
+        
+        # Move to model device
+        device = next(self.parameters()).device
+        encoded = {k: v.to(device) for k, v in encoded.items()}
+        
+        # Run inference
+        with torch.no_grad():
+            outputs = self(text_inputs=encoded)
+        
+        logits = outputs.get('logits')
+        if logits is None:
+            raise ValueError("Model forward() must return 'logits' for prediction")
+        
+        # Process outputs based on task type
+        results = {}
+        
+        if self.task_name == 'paraphrasing':
+            # For generation tasks
+            results['predictions'] = logits  # Raw token predictions
+            if return_probabilities:
+                results['probabilities'] = F.softmax(logits, dim=-1)
+        else:
+            # For classification tasks
+            probabilities = F.softmax(logits, dim=-1)
+            predictions = torch.argmax(logits, dim=-1)
+            
+            results['predictions'] = predictions.cpu().tolist()
+            
+            if return_probabilities:
+                results['probabilities'] = probabilities.cpu().tolist()
+            
+            # Add human-readable labels if available
+            if hasattr(self, 'id2label'):
+                results['labels'] = [self.id2label[pred] for pred in results['predictions']]
+        
+        if return_raw_outputs:
+            results['raw_outputs'] = {
+                'logits': logits.cpu(),
+                'hidden_states': outputs.get('hidden_states'),
+                'attention_weights': outputs.get('attention_weights')
+            }
+        
+        # If single input, return single output (not list)
+        if is_single:
+            for key in ['predictions', 'probabilities', 'labels']:
+                if key in results and isinstance(results[key], list):
+                    results[key] = results[key][0]
+        
+        return results
+    
+    def predict_batch(
+        self,
+        batch_input: Dict[str, Any],
+        batch_size: int = 32,
+        return_probabilities: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Run inference on a batch of inputs.
+        
+        Args:
+            batch_input: Dictionary containing batched inputs (text, audio, image, video)
+            batch_size: Batch size for processing (if re-batching is needed)
+            return_probabilities: Whether to return class probabilities
+            
+        Returns:
+            List of prediction dictionaries, one per sample
+            
+        Example:
+            >>> batch = {
+            ...     'text_inputs': {'input_ids': tensor(...), 'attention_mask': tensor(...)},
+            ...     'image_inputs': tensor(...)
+            ... }
+            >>> results = model.predict_batch(batch)
+            >>> for result in results:
+            ...     print(result['predictions'])
+        """
+        self.eval()
+        
+        # Move inputs to device
+        device = next(self.parameters()).device
+        batch_input = self._move_batch_to_device(batch_input, device)
+        
+        # Run inference
+        with torch.no_grad():
+            outputs = self(**batch_input)
+        
+        logits = outputs.get('logits')
+        if logits is None:
+            raise ValueError("Model forward() must return 'logits' for prediction")
+        
+        # Process outputs
+        results = []
+        batch_len = logits.shape[0]
+        
+        if self.task_name == 'paraphrasing':
+            # For generation tasks
+            for i in range(batch_len):
+                result = {'predictions': logits[i]}
+                if return_probabilities:
+                    result['probabilities'] = F.softmax(logits[i], dim=-1)
+                results.append(result)
+        else:
+            # For classification tasks
+            probabilities = F.softmax(logits, dim=-1)
+            predictions = torch.argmax(logits, dim=-1)
+            
+            for i in range(batch_len):
+                result = {
+                    'predictions': predictions[i].item()
+                }
+                
+                if return_probabilities:
+                    result['probabilities'] = probabilities[i].cpu().tolist()
+                
+                if hasattr(self, 'id2label'):
+                    result['label'] = self.id2label[result['predictions']]
+                
+                results.append(result)
+        
+        return results
+    
+    def predict_file(
+        self,
+        file_path: Union[str, Path],
+        input_format: str = 'auto',
+        batch_size: int = 32,
+        return_probabilities: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Run inference on inputs from a file.
+        
+        Args:
+            file_path: Path to input file (txt, csv, json, jsonl)
+            input_format: Format of input file ('auto', 'txt', 'csv', 'json', 'jsonl')
+            batch_size: Batch size for processing
+            return_probabilities: Whether to return class probabilities
+            
+        Returns:
+            List of prediction dictionaries
+            
+        Example:
+            >>> results = model.predict_file('test_data.txt')
+            >>> model.save_predictions(results, 'predictions.json', format='json')
+        """
+        import json
+        import csv
+        
+        file_path = Path(file_path)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Input file not found: {file_path}")
+        
+        # Auto-detect format
+        if input_format == 'auto':
+            input_format = file_path.suffix.lstrip('.')
+        
+        # Read inputs from file
+        inputs = []
+        
+        if input_format == 'txt':
+            with open(file_path, 'r', encoding='utf-8') as f:
+                inputs = [line.strip() for line in f if line.strip()]
+        
+        elif input_format == 'csv':
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # Assume first column or 'text' column contains input
+                    if 'text' in row:
+                        inputs.append(row['text'])
+                    else:
+                        inputs.append(list(row.values())[0])
+        
+        elif input_format in ['json', 'jsonl']:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                if input_format == 'jsonl':
+                    for line in f:
+                        data = json.loads(line)
+                        inputs.append(data.get('text', str(data)))
+                else:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        inputs = [item.get('text', str(item)) if isinstance(item, dict) else str(item) for item in data]
+                    else:
+                        inputs = [data.get('text', str(data))]
+        
+        else:
+            raise ValueError(f"Unsupported input format: {input_format}")
+        
+        if not inputs:
+            raise ValueError(f"No valid inputs found in {file_path}")
+        
+        # Process in batches
+        all_results = []
+        
+        for i in range(0, len(inputs), batch_size):
+            batch_texts = inputs[i:i + batch_size]
+            
+            # Use predict_text for each batch
+            for text in batch_texts:
+                result = self.predict_text(text, return_probabilities=return_probabilities)
+                result['input_text'] = text  # Include original input
+                all_results.append(result)
+        
+        self.logger.info(f"Processed {len(all_results)} samples from {file_path}")
+        
+        return all_results
+    
+    def save_predictions(
+        self,
+        results: Union[Dict[str, Any], List[Dict[str, Any]]],
+        output_path: Union[str, Path],
+        format: str = 'json'
+    ) -> None:
+        """
+        Save predictions to file.
+        
+        Args:
+            results: Prediction results (single dict or list of dicts)
+            output_path: Path to output file
+            format: Output format ('json', 'csv', 'txt')
+            
+        Example:
+            >>> results = model.predict_file('input.txt')
+            >>> model.save_predictions(results, 'output.json', format='json')
+        """
+        import json
+        import csv
+        
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Ensure results is a list
+        if isinstance(results, dict):
+            results = [results]
+        
+        if format == 'json':
+            # Convert tensors to lists for JSON serialization
+            serializable_results = []
+            for result in results:
+                serializable = {}
+                for key, value in result.items():
+                    if isinstance(value, torch.Tensor):
+                        serializable[key] = value.tolist()
+                    else:
+                        serializable[key] = value
+                serializable_results.append(serializable)
+            
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(serializable_results, f, indent=2, ensure_ascii=False)
+        
+        elif format == 'csv':
+            # Flatten nested structures for CSV
+            with open(output_path, 'w', encoding='utf-8', newline='') as f:
+                if not results:
+                    return
+                
+                # Determine fieldnames
+                fieldnames = set()
+                for result in results:
+                    for key, value in result.items():
+                        if not isinstance(value, (dict, list, torch.Tensor)):
+                            fieldnames.add(key)
+                        elif key == 'probabilities' and isinstance(value, list):
+                            fieldnames.add('max_probability')
+                
+                fieldnames = sorted(fieldnames)
+                
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                
+                for result in results:
+                    row = {}
+                    for key in fieldnames:
+                        if key == 'max_probability' and 'probabilities' in result:
+                            probs = result['probabilities']
+                            if isinstance(probs, list):
+                                row[key] = max(probs)
+                        elif key in result:
+                            value = result[key]
+                            if isinstance(value, torch.Tensor):
+                                row[key] = value.item()
+                            else:
+                                row[key] = value
+                    writer.writerow(row)
+        
+        elif format == 'txt':
+            with open(output_path, 'w', encoding='utf-8') as f:
+                for i, result in enumerate(results):
+                    f.write(f"Sample {i + 1}:\n")
+                    
+                    if 'input_text' in result:
+                        f.write(f"  Input: {result['input_text']}\n")
+                    
+                    if 'predictions' in result:
+                        f.write(f"  Prediction: {result['predictions']}\n")
+                    
+                    if 'label' in result:
+                        f.write(f"  Label: {result['label']}\n")
+                    
+                    if 'probabilities' in result:
+                        probs = result['probabilities']
+                        if isinstance(probs, list):
+                            f.write(f"  Probabilities: {probs}\n")
+                    
+                    f.write("\n")
+        
+        else:
+            raise ValueError(f"Unsupported output format: {format}")
+        
+        self.logger.info(f"Saved {len(results)} predictions to {output_path}")
+    
+    def _move_batch_to_device(
+        self,
+        batch: Dict[str, Any],
+        device: torch.device
+    ) -> Dict[str, Any]:
+        """
+        Move batch tensors to specified device.
+        
+        Args:
+            batch: Batch dictionary
+            device: Target device
+            
+        Returns:
+            Batch with tensors moved to device
+        """
+        moved_batch = {}
+        for key, value in batch.items():
+            if isinstance(value, torch.Tensor):
+                moved_batch[key] = value.to(device)
+            elif isinstance(value, dict):
+                moved_batch[key] = self._move_batch_to_device(value, device)
+            else:
+                moved_batch[key] = value
+        return moved_batch

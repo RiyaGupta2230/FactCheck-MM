@@ -134,7 +134,8 @@ class DomainAdaptationTrainer:
         
         # Initialize checkpoint manager
         self.checkpoint_manager = CheckpointManager(
-            checkpoint_dir=Path(args.checkpoint_dir),
+            checkpoint_dir = Path(args.checkpoint_dir) if hasattr(args, "checkpoint_dir") and args.checkpoint_dir else Path("fact_verification/checkpoints"),
+            checkpoint_dir=checkpoint_dir,
             max_checkpoints=args.max_checkpoints
         )
         
@@ -590,7 +591,7 @@ class DomainAdaptationTrainer:
         }
         
         # Save model using standard save_pretrained method
-        best_model_dir = self.checkpoint_manager.checkpoint_dir / f"best_adapted_{self.args.target_domain}"
+        best_model_dir = self.checkpoint_manager.savedir / f"best_adapted_{self.args.target_domain}"
         self.model.save_pretrained(str(best_model_dir))
         
         # Also save checkpoint for training resumption

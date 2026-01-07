@@ -82,7 +82,7 @@ class FactVerificationTrainer:
         
         # Initialize checkpoint manager
         self.checkpoint_manager = CheckpointManager(
-            checkpoint_dir=Path(args.checkpoint_dir),
+            save_dir = Path(args.checkpoint_dir),
             max_checkpoints=args.max_checkpoints
         )
         

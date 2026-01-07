@@ -84,7 +84,8 @@ class EndToEndTrainer:
         
         # Initialize checkpoint manager
         self.checkpoint_manager = CheckpointManager(
-            checkpoint_dir=Path(args.checkpoint_dir),
+            checkpoint_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else Path("fact_verification/checkpoints"),
+            save_dir=checkpoint_dir,
             max_checkpoints=args.max_checkpoints
         )
         
@@ -616,17 +617,17 @@ class EndToEndTrainer:
         # Save pipeline components separately for easier loading
         if self.pipeline.evidence_retriever:
             self.pipeline.evidence_retriever.save_pretrained(
-                self.checkpoint_manager.checkpoint_dir / "best_retriever"
+                self.checkpoint_manager.save_dir / "best_retriever"
             )
         
         if self.pipeline.fact_verifier:
             self.pipeline.fact_verifier.save_pretrained(
-                self.checkpoint_manager.checkpoint_dir / "best_verifier"
+                self.checkpoint_manager.save_dir / "best_verifier"
             )
         
         if self.pipeline.stance_detector:
             self.pipeline.stance_detector.save_pretrained(
-                self.checkpoint_manager.checkpoint_dir / "best_stance_detector"
+                self.checkpoint_manager.save_dir / "best_stance_detector"
             )
         
         self.checkpoint_manager.save_checkpoint(checkpoint, "best_pipeline_model.pt")

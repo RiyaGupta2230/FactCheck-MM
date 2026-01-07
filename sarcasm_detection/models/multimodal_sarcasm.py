@@ -41,7 +41,14 @@ class MultimodalSarcasmModel(BaseMultimodalModel):
             modalities: List of modalities to use
             feature_dims: Feature dimensions for each modality
         """
-        super().__init__(config, "multimodal_sarcasm")
+        super().__init__(
+            config=config,
+            model_name="multimodal_sarcasm",
+            task_name="sarcasm_detection",
+            num_classes=config.num_classes if hasattr(config, "num_classes") else 2,
+            supported_modalities=["text", "image"]
+        )
+
         
         self.num_classes = num_classes
         self.fusion_strategy = fusion_strategy
@@ -280,6 +287,18 @@ class MultimodalSarcasmModel(BaseMultimodalModel):
                 'confidence': confidence,
                 'logits': logits
             }
+        
+    def compute_loss(self, logits, labels, **kwargs):
+        """
+        Concrete implementation required by BaseMultimodalModel.
+        Uses standard cross-entropy for sarcasm classification.
+        """
+        import torch.nn.functional as F
+
+        # logits: [batch_size, num_classes]
+        # labels: [batch_size]
+        return F.cross_entropy(logits, labels)
+
 
 
 class MultimodalSarcasmClassifier(nn.Module):
