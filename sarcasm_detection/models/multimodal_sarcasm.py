@@ -22,10 +22,10 @@ class MultimodalSarcasmModel(BaseMultimodalModel):
     """
     Multimodal sarcasm detection model combining text, audio, image, and video modalities.
     """
-    
+    _config_class = MultimodalSarcasmConfig
     def __init__(
         self,
-        config: Dict[str, Any],
+        config: MultimodalSarcasmConfig,
         num_classes: int = 2,
         fusion_strategy: str = "cross_modal_attention",
         modalities: Optional[List[str]] = None,
@@ -299,6 +299,15 @@ class MultimodalSarcasmModel(BaseMultimodalModel):
         # labels: [batch_size]
         return F.cross_entropy(logits, labels)
 
+
+    @classmethod
+    def _build_from_config(cls, config: MultimodalSarcasmConfig):
+        return cls(
+            config=config,
+            num_classes=config.num_classes,
+            modalities=config.modalities,
+            fusion_strategy=config.fusion_strategy,
+        )
 
 
 class MultimodalSarcasmClassifier(nn.Module):

@@ -506,6 +506,16 @@ class BaseMultimodalModel(nn.Module, ABC):
         # ==================== INFERENCE API METHODS ====================
     
     @classmethod
+    def _build_from_config(cls, config):
+        """
+        Subclasses must implement this method to construct the model
+        using their own __init__ signature.
+        """
+        raise NotImplementedError(
+            f"{cls.__name__} must implement _build_from_config(config)"
+        )
+
+    @classmethod
     def from_checkpoint(
         cls,
         checkpoint_path: Union[str, Path],
@@ -515,16 +525,20 @@ class BaseMultimodalModel(nn.Module, ABC):
     ) -> 'BaseMultimodalModel':
         """
         Load model from checkpoint for INFERENCE ONLY.
-        For training resumption, use Trainer.from_checkpoint().
         
         Args:
             checkpoint_path: Path to checkpoint file
             device: Device to load model on (None = auto-detect)
             strict: Strict state_dict loading
             config_override: Override saved config values
-            
+        
         Returns:
             Model instance in eval mode
+        
+        Raises:
+            FileNotFoundError: If checkpoint doesn't exist
+            ValueError: If checkpoint is invalid or config_class missing
+            KeyError: If required checkpoint fields missing
         """
         checkpoint_path = Path(checkpoint_path)
         if not checkpoint_path.exists():
@@ -536,8 +550,11 @@ class BaseMultimodalModel(nn.Module, ABC):
         logger.info(f"Loading checkpoint from {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
         
-        # Validate checkpoint structure
-        cls._validate_checkpoint_structure(checkpoint)
+        # Validate required keys
+        required_keys = ['model_state_dict', 'config']
+        missing = [k for k in required_keys if k not in checkpoint]
+        if missing:
+            raise KeyError(f"Checkpoint missing required keys: {missing}")
         
         # Auto-detect device
         if device is None:
@@ -553,23 +570,26 @@ class BaseMultimodalModel(nn.Module, ABC):
         if config_override:
             config_dict.update(config_override)
         
-        # CRITICAL: Subclass must provide config reconstruction
-        if hasattr(cls, '_config_class'):
-            config = cls._config_class.from_dict(config_dict)
-        else:
-            # Fallback: use dict directly
-            from types import SimpleNamespace
-            config = SimpleNamespace(**config_dict)
+        # CRITICAL: Subclass must declare _config_class
+        if not hasattr(cls, '_config_class'):
+            raise ValueError(
+                f"{cls.__name__} must declare _config_class attribute. "
+                f"Example: _config_class = {cls.__name__}Config"
+            )
         
-        # Create model instance
-        # Subclass constructors MUST accept these kwargs
-        model = cls(
-            config=config,
-            model_name=checkpoint['model_name'],
-            task_name=checkpoint['task_name'],
-            num_classes=checkpoint['num_classes'],
-            supported_modalities=checkpoint['supported_modalities']
-        )
+        config_class = cls._config_class
+        
+        # Reconstruct config object
+        if hasattr(config_class, 'from_dict'):
+            config = config_class.from_dict(config_dict)
+        elif hasattr(config_class, '__call__'):
+            config = config_class(**config_dict)
+        else:
+            raise ValueError(f"Config class {config_class} must support from_dict() or **kwargs")
+        
+        # Call subclass-specific builder
+        logger.info(f"Building {cls.__name__} from config")
+        model = cls._build_from_config(config)
         
         # Load state dict
         model.load_state_dict(checkpoint['model_state_dict'], strict=strict)
@@ -578,24 +598,23 @@ class BaseMultimodalModel(nn.Module, ABC):
         model = model.to(device)
         model.eval()
         
-        # Log info
-        logger.info(f"✅ Loaded {checkpoint['model_class']} from epoch {checkpoint['epoch']}")
-        logger.info(f"   Device: {device}")
-        logger.info(f"   Parameters: {checkpoint['model_size']['total_parameters']:,}")
-        logger.info(f"   PyTorch: {checkpoint.get('torch_version', 'unknown')}")
+        # Log success with guarded access
+        epoch = checkpoint.get('epoch', 'unknown')
+        total_params = checkpoint.get('model_size', {}).get('total_parameters', 'unknown')
+        logger.info(f"✅ Loaded {cls.__name__} (epoch={epoch}, params={total_params}, device={device})")
         
         return model
 
-@staticmethod
-def _validate_checkpoint_structure(checkpoint: Dict) -> None:
-    """Validate checkpoint has required fields."""
-    required_fields = [
-        'model_state_dict', 'model_name', 'task_name', 
-        'config', 'num_classes', 'supported_modalities'
-    ]
-    missing = [f for f in required_fields if f not in checkpoint]
-    if missing:
-        raise ValueError(f"Invalid checkpoint: missing fields {missing}")
+    @staticmethod
+    def _validate_checkpoint_structure(checkpoint: Dict) -> None:
+        """Validate checkpoint has required fields."""
+        required_fields = [
+            'model_state_dict', 'model_name', 'task_name', 
+            'config', 'num_classes', 'supported_modalities'
+        ]
+        missing = [f for f in required_fields if f not in checkpoint]
+        if missing:
+            raise ValueError(f"Invalid checkpoint: missing fields {missing}")
 
     
     def predict_text(

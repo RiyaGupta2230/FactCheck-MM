@@ -763,6 +763,13 @@ class FactCheckPipeline(BaseMultimodalModel):
             self.wandb_run.finish()
 
 
+    _config_class = FactCheckPipelineConfig
+
+    @classmethod
+    def _build_from_config(cls, config: FactCheckPipelineConfig):
+        return cls(config)
+
+
 def main():
     """Example usage of FactCheckPipeline."""
     
@@ -859,3 +866,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+# ==================== ALIAS ====================
+# Alias for main.py compatibility
+FactVerificationModel = FactCheckPipeline

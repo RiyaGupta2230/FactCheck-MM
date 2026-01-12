@@ -238,34 +238,8 @@ def cmd_train(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     """Execute training command."""
     logger = get_logger("train")
     
-    # Import task-specific trainers
-    if args.task == "sarcasm_detection":
-        from sarcasm_detection.training import train_multimodal
-        
-    elif args.task == "paraphrasing":
-        from paraphrasing.training import train_generation
-        trainer = train_generation.GenerationTrainer(config)
-    elif args.task == "fact_verification":
-        from fact_verification.training import train_end_to_end
-        trainer = train_end_to_end.EndToEndTrainer(config)
-    elif args.task == "multitask":
-        from experiments.multitask_learning import joint_trainer
-        trainer = joint_trainer.MultitaskTrainer(config)
-    else:
-        raise ValueError(f"Unknown task: {args.task}")
-    
     # Override config with CLI arguments
     training_config = config["training"].get_config_for_task(args.task)
-    model = create_sarcasm_model(
-        "multimodal",
-        config["models"].sarcasm_detection
-    )
-
-    trainer = train_multimodal.MultimodalSarcasmTrainer(
-        model,
-        training_config
-    )
-
     
     if args.epochs:
         training_config.num_epochs = args.epochs
@@ -278,6 +252,36 @@ def cmd_train(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     if args.no_wandb:
         config["base"].use_wandb = False
     
+    # Import task-specific trainers and create trainer instance
+    if args.task == "sarcasm_detection":
+        from sarcasm_detection.training import train_multimodal
+        
+        # Create model and trainer for sarcasm detection
+        model = create_sarcasm_model(
+            "multimodal",
+            config["models"].sarcasm_detection
+        )
+        
+        trainer = train_multimodal.MultimodalSarcasmTrainer(
+            model,
+            training_config
+        )
+        
+    elif args.task == "paraphrasing":
+        from paraphrasing.training import train_generation
+        trainer = train_generation.GenerationTrainer(config)
+        
+    elif args.task == "fact_verification":
+        from fact_verification.training import train_end_to_end
+        trainer = train_end_to_end.EndToEndTrainer(config)
+        
+    elif args.task == "multitask":
+        from experiments.multitask_learning import joint_trainer
+        trainer = joint_trainer.MultitaskTrainer(config)
+        
+    else:
+        raise ValueError(f"Unknown task: {args.task}")
+    
     logger.info(f"Training {args.task} model")
     logger.info(f"Datasets: {args.datasets or 'all available'}")
     logger.info(f"Epochs: {training_config.num_epochs}")
@@ -289,7 +293,6 @@ def cmd_train(args: argparse.Namespace, config: Dict[str, Any]) -> None:
             checkpoint_dir=Path("checkpoints") / args.task,
             resume_from_checkpoint=args.resume
         )
-
         logger.info("✅ Training completed successfully")
     except Exception as e:
         logger.error(f"❌ Training failed: {e}")

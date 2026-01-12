@@ -514,6 +514,13 @@ class T5Paraphraser(BaseMultimodalModel):
         }
 
 
+    _config_class = T5ParaphraserConfig
+
+    @classmethod
+    def _build_from_config(cls, config: T5ParaphraserConfig):
+        return cls(config)
+
+
 def main():
     """Example usage of T5 paraphraser."""
     
@@ -570,3 +577,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+# ==================== ALIAS ====================
+# Alias for main.py compatibility
+T5ParaphraserModel = T5Paraphraser
